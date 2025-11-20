@@ -17,6 +17,7 @@ contract MNEEPaymentRouter {
         string taskId,
         uint256 amount,
         uint256 quantity,
+        bytes32 serviceCallHash,
         uint256 timestamp
     );
 
@@ -29,8 +30,9 @@ contract MNEEPaymentRouter {
         bytes32 serviceId,
         string calldata agentId,
         string calldata taskId,
-        uint256 quantity
-    ) external {
+        uint256 quantity,
+        bytes32 serviceCallHash
+    ) external returns (bytes32 paymentId) {
         MNEEServiceRegistry.Service memory service = registry.getService(serviceId);
         require(service.active, "Service not active");
         require(service.provider != address(0), "Service not found");
@@ -44,9 +46,17 @@ contract MNEEPaymentRouter {
             "Transfer failed"
         );
 
-        // Generate a unique payment ID (hash of params + timestamp)
-        bytes32 paymentId = keccak256(
-            abi.encodePacked(msg.sender, serviceId, agentId, taskId, block.timestamp)
+        // Generate a unique payment ID (hash of params + serviceCallHash + timestamp)
+        // This binds the on-chain payment to the specific off-chain service invocation
+        paymentId = keccak256(
+            abi.encodePacked(
+                serviceId,
+                agentId,
+                taskId,
+                serviceCallHash,
+                totalAmount,
+                block.timestamp
+            )
         );
 
         emit PaymentExecuted(
@@ -58,7 +68,10 @@ contract MNEEPaymentRouter {
             taskId,
             totalAmount,
             quantity,
+            serviceCallHash,
             block.timestamp
         );
+
+        return paymentId;
     }
 }

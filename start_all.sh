@@ -25,11 +25,11 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Log files directory
-LOG_DIR="./logs"
+LOG_DIR="$(pwd)/logs"
 mkdir -p "$LOG_DIR"
 
 # PID files directory
-PID_DIR="./pids"
+PID_DIR="$(pwd)/pids"
 mkdir -p "$PID_DIR"
 
 ##############################################################################
@@ -145,29 +145,29 @@ start_providers() {
     # ImageGen Provider (Port 8001)
     print_info "Starting ImageGen Provider..."
     cd providers/imagegen
-    python main.py > "../../$LOG_DIR/imagegen.log" 2>&1 &
-    echo $! > "../../$PID_DIR/imagegen.pid"
+    python3 main.py > "$LOG_DIR/imagegen.log" 2>&1 &
+    echo $! > "$PID_DIR/imagegen.pid"
     cd ../..
     
     # PriceOracle Provider (Port 8002)
     print_info "Starting PriceOracle Provider..."
     cd providers/price_oracle
-    python main.py > "../../$LOG_DIR/priceoracle.log" 2>&1 &
-    echo $! > "../../$PID_DIR/priceoracle.pid"
+    python3 main.py > "$LOG_DIR/priceoracle.log" 2>&1 &
+    echo $! > "$PID_DIR/priceoracle.pid"
     cd ../..
     
     # BatchCompute Provider (Port 8003)
     print_info "Starting BatchCompute Provider..."
     cd providers/batch_compute
-    python main.py > "../../$LOG_DIR/batchcompute.log" 2>&1 &
-    echo $! > "../../$PID_DIR/batchcompute.pid"
+    python3 main.py > "$LOG_DIR/batchcompute.log" 2>&1 &
+    echo $! > "$PID_DIR/batchcompute.pid"
     cd ../..
     
     # LogArchive Provider (Port 8004)
     print_info "Starting LogArchive Provider..."
     cd providers/log_archive
-    python main.py > "../../$LOG_DIR/logarchive.log" 2>&1 &
-    echo $! > "../../$PID_DIR/logarchive.pid"
+    python3 main.py > "$LOG_DIR/logarchive.log" 2>&1 &
+    echo $! > "$PID_DIR/logarchive.pid"
     cd ../..
     
     # Wait for all providers to be ready
@@ -198,13 +198,13 @@ start_backend() {
     
     cd backend
     
-    if [ -f "../$PID_DIR/backend.pid" ]; then
+    if [ -f "$PID_DIR/backend.pid" ]; then
         print_warning "Backend may already be running. Stopping first..."
         stop_backend
     fi
     
-    uvicorn app.main:app --host 0.0.0.0 --port 8000 > "../$LOG_DIR/backend.log" 2>&1 &
-    echo $! > "../$PID_DIR/backend.pid"
+    uvicorn app.main:app --host 0.0.0.0 --port 8000 > "$LOG_DIR/backend.log" 2>&1 &
+    echo $! > "$PID_DIR/backend.pid"
     
     cd ..
     
@@ -232,7 +232,7 @@ start_all() {
     # Check prerequisites
     check_command node
     check_command npx
-    check_command python
+    check_command python3
     check_command curl
     
     # Start services in order

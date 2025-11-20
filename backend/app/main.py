@@ -142,7 +142,12 @@ def get_all_services():
                 "id": service.id,
                 "unitPrice": service.unitPrice,
                 "providerAddress": service.providerAddress,
-                "active": service.active
+                "active": service.active,
+                "isVerified": getattr(service, 'isVerified', False),
+                "metadataURI": getattr(service, 'metadataURI', ''),
+                "maxDailySpending": getattr(service, 'maxDailySpending', None),
+                "allowedAgents": getattr(service, 'allowedAgents', None),
+                "blockedAgents": getattr(service, 'blockedAgents', None)
             }
             for service in omni_agent.policy_engine.services.values()
         ]
@@ -160,6 +165,11 @@ def get_service(service_id: str):
         "unitPrice": service.unitPrice,
         "providerAddress": service.providerAddress,
         "active": service.active,
+        "isVerified": getattr(service, 'isVerified', False),
+        "metadataURI": getattr(service, 'metadataURI', ''),
+        "maxDailySpending": getattr(service, 'maxDailySpending', None),
+        "allowedAgents": getattr(service, 'allowedAgents', None),
+        "blockedAgents": getattr(service, 'blockedAgents', None),
         "transactions": omni_agent.logger.get_service_transactions(service_id),
         "totalRevenue": omni_agent.logger.get_total_revenue_by_service(service_id)
     }

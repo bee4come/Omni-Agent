@@ -6,7 +6,8 @@ langchain
 langchain-openai
 langchain-aws
 langchain-core
+langgraph>=0.0.20
 python-dotenv
-pydantic
+pydantic>=2.0.0
 requests
 boto3
