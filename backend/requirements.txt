@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+web3
+pyyaml
+langchain
+langchain-openai
+langchain-aws
+langchain-core
+python-dotenv
+pydantic
+requests
+boto3

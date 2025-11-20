@@ -1,0 +1,124 @@
+version: '3.8'
+
+# MNEE Nexus / Omni-Agent - Full Stack Docker Compose
+# 
+# Services:
+# - hardhat: Local Ethereum node with deployed contracts
+# - backend: FastAPI backend with policy engine
+# - imagegen: Image generation provider (port 8001)
+# - priceoracle: Price oracle provider (port 8002)
+# - batchcompute: Batch compute provider (port 8003)
+# - logarchive: Log archive provider (port 8004)
+
+services:
+  # Local Ethereum node (Hardhat)
+  hardhat:
+    build:
+      context: ./contracts
+      dockerfile: Dockerfile
+    ports:
+      - "8545:8545"
+    environment:
+      - NODE_ENV=development
+    networks:
+      - mnee-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8545"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ETH_RPC_URL=http://hardhat:8545
+      - MNEE_TOKEN_ADDRESS=${MNEE_TOKEN_ADDRESS}
+      - PAYMENT_ROUTER_ADDRESS=${PAYMENT_ROUTER_ADDRESS}
+      - SERVICE_REGISTRY_ADDRESS=${SERVICE_REGISTRY_ADDRESS}
+      - TREASURY_PRIVATE_KEY=${TREASURY_PRIVATE_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./config:/app/config:ro
+      - ./backend:/app:ro
+    depends_on:
+      hardhat:
+        condition: service_healthy
+    networks:
+      - mnee-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Service Providers
+  imagegen:
+    build:
+      context: ./providers/imagegen
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    networks:
+      - mnee-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  priceoracle:
+    build:
+      context: ./providers/price_oracle
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    networks:
+      - mnee-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  batchcompute:
+    build:
+      context: ./providers/batch_compute
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8003"
+    networks:
+      - mnee-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  logarchive:
+    build:
+      context: ./providers/log_archive
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8004"
+    networks:
+      - mnee-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  mnee-network:
+    driver: bridge
+
+volumes:
+  hardhat-data:

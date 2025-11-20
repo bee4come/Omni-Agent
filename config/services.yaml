@@ -1,0 +1,20 @@
+services:
+  - id: "IMAGE_GEN_PREMIUM"
+    unitPrice: 1.0
+    providerAddress: "<image_provider_address>"
+    active: true
+
+  - id: "PRICE_ORACLE"
+    unitPrice: 0.05
+    providerAddress: "<oracle_provider_address>"
+    active: true
+
+  - id: "BATCH_COMPUTE"
+    unitPrice: 3.0
+    providerAddress: "<batch_provider_address>"
+    active: true
+
+  - id: "LOG_ARCHIVE"
+    unitPrice: 0.01
+    providerAddress: "<log_provider_address>"
+    active: true

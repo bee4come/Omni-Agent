@@ -1,0 +1,268 @@
+name: MNEE Nexus CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  PYTHON_VERSION: '3.10'
+  NODE_VERSION: '18'
+
+jobs:
+  validate-config:
+    name: Validate Configuration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install validation dependencies
+        run: |
+          pip install pyyaml pydantic
+      
+      - name: Run configuration validation
+        run: |
+          python scripts/validate_config.py
+
+  test-backend:
+    name: Test Backend
+    runs-on: ubuntu-latest
+    needs: validate-config
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Cache Python dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio httpx
+      
+      - name: Run backend tests
+        run: |
+          cd backend
+          pytest tests/ -v --cov=. --cov-report=xml --cov-report=term
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./backend/coverage.xml
+          flags: backend
+          name: backend-coverage
+
+  test-contracts:
+    name: Test Smart Contracts
+    runs-on: ubuntu-latest
+    needs: validate-config
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      
+      - name: Cache Node dependencies
+        uses: actions/cache@v3
+        with:
+          path: contracts/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('contracts/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+      
+      - name: Install dependencies
+        run: |
+          cd contracts
+          npm ci
+      
+      - name: Compile contracts
+        run: |
+          cd contracts
+          npx hardhat compile
+      
+      - name: Run contract tests
+        run: |
+          cd contracts
+          npx hardhat test
+      
+      - name: Generate coverage report
+        run: |
+          cd contracts
+          npx hardhat coverage
+
+  lint-code:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install linting tools
+        run: |
+          pip install flake8 black isort
+      
+      - name: Run Python linters
+        run: |
+          # Check code formatting
+          black --check backend/
+          # Check import sorting
+          isort --check-only backend/
+          # Check code style
+          flake8 backend/ --max-line-length=120 --extend-ignore=E203,W503
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      
+      - name: Install Solidity linter
+        run: |
+          npm install -g solhint
+      
+      - name: Lint Solidity contracts
+        run: |
+          cd contracts
+          solhint 'contracts/**/*.sol'
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+      
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  build-docker:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-contracts, lint-code]
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Build backend image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./backend
+          push: false
+          tags: mnee-nexus/backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Build provider images
+        run: |
+          docker build -t mnee-nexus/imagegen:latest ./providers/imagegen
+          docker build -t mnee-nexus/priceoracle:latest ./providers/price_oracle
+          docker build -t mnee-nexus/batchcompute:latest ./providers/batch_compute
+          docker build -t mnee-nexus/logarchive:latest ./providers/log_archive
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-contracts]
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          cd contracts && npm ci && cd ..
+      
+      - name: Start Hardhat node
+        run: |
+          cd contracts
+          npx hardhat node &
+          sleep 5
+      
+      - name: Deploy contracts
+        run: |
+          cd contracts
+          npx hardhat run scripts/deploy.js --network localhost
+      
+      - name: Start services
+        run: |
+          cd backend
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          sleep 10
+      
+      - name: Run integration tests
+        run: |
+          cd backend
+          python test_api.py
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [integration-test, build-docker, security-scan]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment:
+      name: staging
+      url: https://staging.mnee-nexus.example.com
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Deploy to staging
+        run: |
+          echo "Deploying to staging environment..."
+          # Add your staging deployment commands here
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [integration-test, build-docker, security-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: https://mnee-nexus.example.com
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production environment..."
+          # Add your production deployment commands here

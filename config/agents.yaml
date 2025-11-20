@@ -1,0 +1,15 @@
+agents:
+  - id: "user-agent"
+    priority: "HIGH"
+    dailyBudget: 100.0
+    maxPerCall: 10.0
+
+  - id: "batch-agent"
+    priority: "LOW"
+    dailyBudget: 50.0
+    maxPerCall: 20.0
+
+  - id: "ops-agent"
+    priority: "MEDIUM"
+    dailyBudget: 30.0
+    maxPerCall: 5.0
