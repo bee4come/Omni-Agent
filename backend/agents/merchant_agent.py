@@ -50,7 +50,7 @@ active_quotes = {} # quoteId -> QuoteResponse
 fulfilled_orders = {} # paymentId -> ServiceResult
 
 # Configuration (In a real app, this would be in a DB or config file)
-MERCHANT_WALLET_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" # Default Hardhat Account 0 (Testing)
+MERCHANT_WALLET_ADDRESS = "1MerchantXyZ7F4ce6aB8827279cffFb92266" # Mock Bitcoin-style Address
 SERVICES = {
     "IMAGE_GEN_PREMIUM": {
         "unitPrice": "1.0", # 1 MNEE
@@ -106,9 +106,9 @@ async def deliver_service(notice: PaymentNotice):
     quote = active_quotes[notice.quoteId]
     
     # 2. Verify Payment Details (MVP: Trust the Client. Real: Check Chain)
-    # In a real scenario, we would query the blockchain using web3.py here:
-    # event = contract.events.PaymentExecuted.get_logs(argument_filters={'paymentId': notice.paymentId})
-    # if not event: raise Error...
+    # In a real scenario, we would use the MNEE SDK to verify the transaction:
+    # status = await mnee.getTxStatus(notice.paymentId)
+    # if status['status'] != 'SUCCESS': raise Error...
     
     print(f"[Merchant] Verifying Payment: {notice.paymentId} for Quote {notice.quoteId}...")
     time.sleep(1) # Simulate verification delay
