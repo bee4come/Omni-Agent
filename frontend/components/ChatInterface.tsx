@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { Send, Server, Activity } from 'lucide-react';
 import { Card, cn } from './ui/Card';
+import { A2AViewer } from './A2AViewer';
 
 interface ChatInterfaceProps {
     onMessageSent: () => void;
@@ -10,7 +11,12 @@ interface ChatInterfaceProps {
 export const ChatInterface = ({ onMessageSent }: ChatInterfaceProps) => {
     const [agentId, setAgentId] = useState('user-agent');
     const [input, setInput] = useState('');
-    const [messages, setMessages] = useState<{ role: string, content: string, timestamp?: string }[]>([]);
+    const [messages, setMessages] = useState<{ 
+        role: string, 
+        content: string, 
+        timestamp?: string,
+        payment_results?: any[]
+    }[]>([]);
     const [loading, setLoading] = useState(false);
 
     const sendMessage = async () => {
@@ -30,7 +36,8 @@ export const ChatInterface = ({ onMessageSent }: ChatInterfaceProps) => {
             setMessages(prev => [...prev, { 
                 role: 'assistant', 
                 content: res.data.response,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                payment_results: res.data.payment_results
             }]);
 
             // Refresh all data after action
@@ -80,7 +87,8 @@ export const ChatInterface = ({ onMessageSent }: ChatInterfaceProps) => {
                             </div>
                             <p>Select an agent and start a task to see MNEE payments in action.</p>
                             <div className="grid grid-cols-2 gap-2 text-xs">
-                                <button onClick={() => setInput("Generate a cyberpunk avatar")} className="px-3 py-2 bg-slate-900 rounded-lg hover:bg-slate-800 border border-slate-800">Generate Avatar (1.0 MNEE)</button>
+                                <button onClick={() => setInput("Buy me a cyberpunk avatar")} className="px-3 py-2 bg-slate-900 rounded-lg hover:bg-slate-800 border border-slate-800">Buy Avatar (A2A)</button>
+                                <button onClick={() => setInput("Generate a cyberpunk avatar")} className="px-3 py-2 bg-slate-900 rounded-lg hover:bg-slate-800 border border-slate-800">Generate (Direct)</button>
                                 <button onClick={() => setInput("Submit a heavy batch job")} className="px-3 py-2 bg-slate-900 rounded-lg hover:bg-slate-800 border border-slate-800">Batch Job (3.0 MNEE)</button>
                             </div>
                         </div>
@@ -94,21 +102,32 @@ export const ChatInterface = ({ onMessageSent }: ChatInterfaceProps) => {
                             )}>
                                 {msg.role === 'user' ? <div className="w-4 h-4 bg-slate-400 rounded-full" /> : <Activity className="w-4 h-4 text-white" />}
                             </div>
-                            <div className={cn(
-                                "px-5 py-3.5 rounded-2xl text-sm leading-relaxed",
-                                msg.role === 'user' ? "bg-slate-800 text-slate-200" : "bg-indigo-900/20 text-indigo-100 border border-indigo-500/20"
-                            )}>
-                                {msg.content}
+                            
+                            <div className="flex flex-col gap-2 max-w-full overflow-hidden">
+                                <div className={cn(
+                                    "px-5 py-3.5 rounded-2xl text-sm leading-relaxed",
+                                    msg.role === 'user' ? "bg-slate-800 text-slate-200" : "bg-indigo-900/20 text-indigo-100 border border-indigo-500/20"
+                                )}>
+                                    <div className="whitespace-pre-wrap font-mono text-xs">{msg.content}</div>
+                                </div>
+
+                                {/* A2A Visualization Module */}
+                                {msg.payment_results && msg.payment_results.length > 0 && (
+                                    <div className="w-[600px] max-w-full">
+                                        <A2AViewer latestResults={msg.payment_results} />
+                                    </div>
+                                )}
                             </div>
                         </div>
                     ))}
+                    
                     {loading && (
                         <div className="flex gap-4">
                             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0 animate-pulse">
                                 <Activity className="w-4 h-4 text-white" />
                             </div>
                             <div className="px-5 py-3.5 rounded-2xl bg-indigo-900/20 border border-indigo-500/20 text-sm text-indigo-300">
-                                Thinking & Paying Service Providers...
+                                Thinking & Negotiating with Agents...
                             </div>
                         </div>
                     )}

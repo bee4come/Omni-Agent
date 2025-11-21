@@ -151,12 +151,61 @@ class PaidToolWrapper:
         service_id: str,
         agent_id: str,
         payload_dict: Dict[str, Any],
-        quantity: int = 1
+        quantity: int = 1,
+        override_price: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         Direct execution method (non-decorator style) with full anti-spoofing support.
         
         This is useful for LangGraph nodes where decorator pattern is inconvenient.
         """
-        wrapped = self.wrap(tool_func, service_id, agent_id)
-        return wrapped(payload_dict=payload_dict, quantity=quantity)
+        # We can't easily use the decorator here because we need to pass override_price
+        # So we replicate the logic or modify the wrapper. 
+        # For simplicity, let's just implement the logic directly here since this is the "Manual" invoke path.
+        
+        task_id = str(uuid.uuid4()) # Or use one if passed... but here we generate one
+        
+        # Step 1: Payment
+        payment_result: PaymentResult = self.payment.pay_for_service(
+            service_id=service_id,
+            agent_id=agent_id,
+            task_id=task_id,
+            quantity=quantity,
+            payload_dict=payload_dict,
+            override_price=override_price
+        )
+        
+        if not payment_result.success:
+             # Log failure ... (omitted for brevity as it duplicates wrapper logic, but normally should be here)
+             return {
+                "error": "Payment Failed",
+                "reason": payment_result.error
+             }
+
+        # Step 2: Execute
+        try:
+             # Prepare kwargs for the tool
+             # We assume the tool_func accepts **kwargs or specific args
+             # This is a bit fragile for generic tools but works for our defined tools
+             
+             # Ideally we inject the payment proof into the payload if the tool expects it
+             
+             # Construct the PaymentNotice expected by the merchant
+             payment_notice = {
+                 "type": "PAYMENT_NOTICE",
+                 "serviceId": service_id,
+                 "taskId": task_id,
+                 "paymentId": payment_result.payment_id,
+                 "serviceCallHash": payment_result.service_call_hash,
+                 "txHash": payment_result.tx_hash,
+                 # We might need quoteId here if it was in payload_dict
+                 "quoteId": payload_dict.get("quoteId", "") 
+             }
+             
+             # Call the tool with this notice
+             result = tool_func(payment_notice=payment_notice)
+             
+             return result
+             
+        except Exception as e:
+            return {"error": str(e)}

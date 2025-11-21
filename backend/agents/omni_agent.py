@@ -20,14 +20,15 @@ from policy.engine import PolicyEngine
 from payment.client import PaymentClient
 from payment.wrapper import PaidToolWrapper
 from policy.logger import SystemLogger
+from agents.tools import definitions
 import requests
 import json
 import uuid
 
 
-# ============================================================
+# ============================================================ 
 # State Definition
-# ============================================================
+# ============================================================ 
 class AgentState(TypedDict):
     """State shared across all nodes in the graph"""
     messages: Annotated[Sequence[BaseMessage], operator.add]
@@ -40,9 +41,9 @@ class AgentState(TypedDict):
     final_output: str
 
 
-# ============================================================
+# ============================================================ 
 # LLM Initialization Helper
-# ============================================================
+# ============================================================ 
 def create_llm() -> Optional[Any]:
     """
     Create LLM instance based on environment variables.
@@ -63,17 +64,31 @@ def create_llm() -> Optional[Any]:
         return None
 
 
-# ============================================================
+# ============================================================ 
 # Fallback Keyword-based Router (when no LLM available)
-# ============================================================
+# ============================================================ 
 def fallback_keyword_router(message_content: str) -> Dict[str, Any]:
     """Simple keyword-based routing when LLM is not available"""
     content_lower = message_content.lower()
     
-    if any(word in content_lower for word in ['image', 'generate', 'picture', 'avatar', '头像', '图片', '生成']):
+    if any(word in content_lower for word in ['buy', 'purchase', 'shop', 'merchant', 'quote', '买', '购物', '报价']):
+        # Demo: Assuming user wants to buy "IMAGE_GEN_PREMIUM" if not specified
+        service_id = "IMAGE_GEN_PREMIUM"
+        if "data" in content_lower or "analysis" in content_lower:
+            service_id = "DATA_ANALYSIS_BASIC"
+            
+        return {
+            "action": "get_quote",
+            "reasoning": "User wants to buy a service from a merchant",
+            "parameters": {
+                "service_id": service_id,
+                "payload": {"description": message_content}
+            }
+        }
+    elif any(word in content_lower for word in ['image', 'generate', 'picture', 'avatar', '头像', '图片', '生成']):
         return {
             "action": "image_gen",
-            "reasoning": "User wants to generate an image",
+            "reasoning": "User wants to generate an image (Direct)",
             "parameters": {"prompt": message_content}
         }
     elif any(word in content_lower for word in ['price', 'eth', 'mnee', '价格', '换算']):
@@ -102,9 +117,9 @@ def fallback_keyword_router(message_content: str) -> Dict[str, Any]:
         }
 
 
-# ============================================================
+# ============================================================ 
 # Tool Implementations with Payment Integration
-# ============================================================
+# ============================================================ 
 class PaidServiceTools:
     """Tools that require MNEE payment before execution"""
     
@@ -112,6 +127,41 @@ class PaidServiceTools:
         self.wrapper = wrapper
         self.agent_id = agent_id
     
+    def get_quote(self, service_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Get a quote from the Merchant Agent (Free tool)"""
+        task_id = str(uuid.uuid4())
+        # This is informational, so no policy check needed yet
+        return definitions.request_quote_tool(service_id, task_id, payload)
+
+    def purchase_service(self, quote: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute payment based on quote and redeem service"""
+        service_id = quote.get('serviceId')
+        # Ensure price is a float
+        try:
+            unit_price = float(quote.get('unitPriceMNEE', 0))
+        except:
+            unit_price = 0.0
+            
+        quantity = quote.get('quantity', 1)
+        quote_id = quote.get('quoteId')
+        
+        # Payload for the wrapper (and eventually the tool)
+        payload_for_wrapper = {
+            "quoteId": quote_id,
+            "serviceId": service_id,
+            "original_task_id": quote.get('taskId')
+        }
+
+        # Execute with payment override
+        return self.wrapper.execute_with_payment(
+            tool_func=definitions.deliver_service_tool,
+            service_id=service_id,
+            agent_id=self.agent_id,
+            payload_dict=payload_for_wrapper,
+            quantity=quantity,
+            override_price=unit_price
+        )
+
     def image_gen(self, prompt: str) -> Dict[str, Any]:
         """Generate an image using IMAGE_GEN service"""
         def _call_service(task_id: str = None, service_call_hash: str = None, **kwargs):
@@ -216,9 +266,9 @@ class PaidServiceTools:
         return wrapped(payload_dict={"content": content})
 
 
-# ============================================================
+# ============================================================ 
 # Graph Nodes
-# ============================================================
+# ============================================================ 
 
 def user_input_node(state: AgentState) -> AgentState:
     """Entry point: Receives user message"""
@@ -232,6 +282,20 @@ def planning_node(state: AgentState, llm: Optional[Any], tools: PaidServiceTools
     
     last_message = state['messages'][-1].content if state['messages'] else ""
     
+    # If we just got a QUOTE back, we should probably pay for it if it looks good
+    # This is a simple heuristic for the demo.
+    # In a real agent, we'd feed the quote back to the LLM to decide.
+    if state['payment_results'] and state['payment_results'][-1]['action'] == 'get_quote':
+        quote_result = state['payment_results'][-1]['result']
+        if 'quoteId' in quote_result:
+            print("[PLANNING_NODE] Quote received. Automatically proceeding to purchase...")
+            state['pending_tool_calls'].append({
+                'action': 'purchase_service',
+                'parameters': {'quote': quote_result},
+                'reasoning': 'Auto-purchasing based on received quote'
+            })
+            return state
+
     if llm:
         # Use real LLM to determine action
         try:
@@ -239,17 +303,20 @@ def planning_node(state: AgentState, llm: Optional[Any], tools: PaidServiceTools
 Analyze the user's request and determine which action to take.
 Respond with ONLY a JSON object in this format:
 {{
-    "action": "image_gen" | "price_oracle" | "batch_compute" | "log_archive" | "respond",
+    "action": "get_quote" | "image_gen" | "price_oracle" | "batch_compute" | "log_archive" | "respond",
     "reasoning": "explanation of your decision",
     "parameters": {{relevant parameters}}
 }}
 
 Available actions:
-- image_gen: Generate images (requires prompt)
-- price_oracle: Get crypto prices (requires symbol like ETH)
-- batch_compute: Run batch computations (requires payload/description)
-- log_archive: Archive logs (requires content)
-- respond: Just respond to user without tool call"""
+- get_quote: Request a price quote from a Merchant Agent (preferred for buying services). Params: service_id, payload.
+- image_gen: Legacy direct call (deprecated).
+- price_oracle: Get crypto prices (requires symbol like ETH).
+- batch_compute: Run batch computations.
+- log_archive: Archive logs.
+- respond: Just respond to user without tool call.
+
+If the user wants to buy something, use 'get_quote' first."""
 
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -299,7 +366,14 @@ def tool_execution_node(state: AgentState, tools: PaidServiceTools) -> AgentStat
     result = None
     
     try:
-        if action == 'image_gen':
+        if action == 'get_quote':
+            result = tools.get_quote(
+                params.get('service_id', 'IMAGE_GEN_PREMIUM'),
+                params.get('payload', {})
+            )
+        elif action == 'purchase_service':
+            result = tools.purchase_service(params.get('quote', {}))
+        elif action == 'image_gen':
             result = tools.image_gen(params.get('prompt', ''))
         elif action == 'price_oracle':
             result = tools.price_oracle(params.get('symbol', 'ETH'))
@@ -369,6 +443,18 @@ def output_synthesis_node(state: AgentState) -> AgentState:
         if isinstance(result, dict):
             if result.get('error'):
                 output_parts.append(f"❌ {action}: {result['error']}")
+            elif action == 'get_quote':
+                quote_id = result.get('quoteId', 'N/A')
+                price = result.get('unitPriceMNEE', 'N/A')
+                output_parts.append(f"📄 Quote Received: {quote_id} - Price: {price} MNEE")
+            elif action == 'purchase_service':
+                status = result.get('status', 'N/A')
+                data = result.get('data', {})
+                output_parts.append(f"✅ Purchase Successful! Status: {status}")
+                if 'imageUrl' in data:
+                    output_parts.append(f"🖼️ Delivered Image: {data['imageUrl']}")
+                if 'reportUrl' in data:
+                    output_parts.append(f"📊 Delivered Report: {data['reportUrl']}")
             elif action == 'image_gen':
                 url = result.get('imageUrl', 'N/A')
                 mock_note = " (Mock)" if result.get('mock') else ""
@@ -409,6 +495,15 @@ def should_continue(state: AgentState) -> str:
     if state['pending_tool_calls']:
         return "execute_tools"
     
+    # If we just got a QUOTE, we probably added a purchase task, so execute it
+    if state['payment_results'] and state['payment_results'][-1]['action'] == 'get_quote':
+        # Logic in planning node handles the addition, but we need to ensure we loop back
+        # Actually, the current flow is input -> planning -> execute -> check.
+        # So we need to go back to planning to let it see the quote?
+        # My planning node logic: "If payment_results has get_quote, add purchase_service".
+        # So we need to go to PLANNING.
+        return "planning"
+    
     # If no results yet and retry count is low, go back to planning
     if not state['payment_results'] and state['retry_count'] < 2:
         state['retry_count'] += 1
@@ -418,9 +513,9 @@ def should_continue(state: AgentState) -> str:
     return "output"
 
 
-# ============================================================
+# ============================================================ 
 # OmniAgent Class - Main Interface
-# ============================================================
+# ============================================================ 
 class OmniAgent:
     """
     Main orchestrator using LangGraph stateful graph.
@@ -440,7 +535,7 @@ class OmniAgent:
             services_path=os.getenv("SERVICE_CONFIG_PATH", str(default_services_path))
         )
         
-        self.payment_client = PaymentClient()
+        self.payment_client = PaymentClient(policy_engine=self.policy_engine)
         self.logger = SystemLogger()
         self.wrapper = PaidToolWrapper(
             self.policy_engine,
@@ -531,7 +626,7 @@ class OmniAgent:
             # Execute graph
             print(f"\n{'='*60}")
             print(f"[OMNI_AGENT] Starting execution for agent={agent_id}")
-            print(f"{'='*60}")
+            print(f"{'='*60}\n")
             
             final_state = self.graph.invoke(initial_state)
             
@@ -547,14 +642,14 @@ class OmniAgent:
                 "policy_feedback": final_state['policy_feedback']
             }
         
-        finally:
+finally:
             # Clean up
             self.current_tools = None
 
 
-# ============================================================
+# ============================================================ 
 # CLI Test Interface
-# ============================================================
+# ============================================================ 
 if __name__ == "__main__":
     agent = OmniAgent()
     
@@ -563,10 +658,8 @@ if __name__ == "__main__":
     print("="*60)
     
     test_scenarios = [
-        ("user-agent", "帮我生成一张赛博朋克风的 Twitter 头像"),
-        ("user-agent", "现在 ETH 什么价格？100 MNEE 大约多少 ETH？"),
-        ("batch-agent", "Run a large batch computation job with 100 iterations"),
-        ("user-agent", "Archive this conversation"),
+        ("user-agent", "我想买个赛博朋克头像"),
+        ("user-agent", "Buy me a premium image"),
     ]
     
     for agent_id, message in test_scenarios:

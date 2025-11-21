@@ -86,7 +86,8 @@ class PaymentClient:
         agent_id: str, 
         task_id: str, 
         quantity: int, 
-        payload_dict: Dict[str, Any]
+        payload_dict: Dict[str, Any],
+        override_price: float = None
     ) -> PaymentResult:
         """
         Complete payment flow with policy enforcement and anti-spoofing.
@@ -104,7 +105,9 @@ class PaymentClient:
         estimated_cost = 0.0
         if self.policy_engine:
             service = self.policy_engine.services.get(service_id)
-            if service:
+            if override_price is not None:
+                estimated_cost = override_price * quantity
+            elif service:
                 estimated_cost = service.unitPrice * quantity
         
         # Step 3: Policy + Risk check
@@ -129,7 +132,11 @@ class PaymentClient:
             # Use approved quantity (may be downgraded)
             if decision.action == "DOWNGRADE":
                 quantity = decision.approved_quantity
-                estimated_cost = service.unitPrice * quantity if service else estimated_cost
+                # Re-calculate cost based on new quantity
+                if override_price is not None:
+                    estimated_cost = override_price * quantity
+                elif service:
+                    estimated_cost = service.unitPrice * quantity
         
         # Step 4: Send on-chain payment
         if not self.contract or not self.private_key:

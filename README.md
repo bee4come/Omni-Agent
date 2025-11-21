@@ -2,6 +2,12 @@
 
 **Programmable Payment Orchestrator for AI Agents, powered by the MNEE stablecoin.**
 
+> **📖 READ THIS FIRST:**  
+> See [**FINAL_PROJECT_OVERVIEW.md**](FINAL_PROJECT_OVERVIEW.md) for the complete explanation of:
+> 1. The "Why" (Safety, Anti-Scam, Auditability)
+> 2. The Architecture (Layers 1-4)
+> 3. The new **A2A (Agent-to-Agent) Commerce Rail**
+
 > Let multiple AI agents share one MNEE treasury,  
 > pay different service providers on a pay-per-task basis,  
 > and enforce budgets, priorities, and policies across the whole system.

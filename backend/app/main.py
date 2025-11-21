@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from agents.omni_agent import OmniAgent
+from agents.merchant_agent import router as merchant_router
 import os
 from dotenv import load_dotenv
 
@@ -22,6 +23,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(merchant_router)
 
 omni_agent = OmniAgent()
 
@@ -51,7 +54,8 @@ def chat(request: ChatRequest):
         result = omni_agent.run(request.agent_id, request.message)
         return {
             "response": result['output'],
-            "agent_id": request.agent_id
+            "agent_id": request.agent_id,
+            "payment_results": result.get('payment_results', [])
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
