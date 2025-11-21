@@ -21,7 +21,7 @@ This breaks down into three critical pillars:
 
 ### Layer 1: Settlement (The "Bank")
 *   **Token:** MNEE (UTXO-based Stablecoin).
-*   **SDK:** `@mnee/ts-sdk` (Mocked in Python for Demo).
+*   **SDK:** `@mnee/ts-sdk` (Running via Node.js Bridge).
 *   **Treasury:** A shared HD Wallet controlled by the Orchestrator.
 
 ### Layer 2: Transfer Logic (The "Rails")
