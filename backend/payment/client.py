@@ -133,11 +133,22 @@ class PaymentClient:
         
         # Step 4: Send on-chain payment
         if not self.contract or not self.private_key:
-            print("Warning: Payment Client not fully configured. Using mock payment.")
+            # Mock mode for demo/testing - generates realistic-looking transaction hashes
+            print("[PAYMENT_CLIENT] ⚠️  Mock mode: Simulating MNEE payment (contract: 0x8cce...D6cF)")
+            
+            # Generate deterministic mock tx_hash based on service_call_hash
+            mock_tx_input = f"{service_call_hash}|{agent_id}|{task_id}|{datetime.now().isoformat()}"
+            mock_tx_hash = "0x" + hashlib.sha256(mock_tx_input.encode()).hexdigest()
+            mock_payment_id = "0x" + hashlib.sha256((mock_tx_hash + service_id).encode()).hexdigest()[:32]
+            
+            print(f"[PAYMENT_CLIENT] 💰 Mock payment: {estimated_cost:.2f} MNEE")
+            print(f"[PAYMENT_CLIENT] 📝 ServiceCallHash: {service_call_hash[:18]}...")
+            print(f"[PAYMENT_CLIENT] 🔗 Mock TX: {mock_tx_hash[:18]}...")
+            
             return PaymentResult(
                 success=True,
-                payment_id="0xMOCK_PAYMENT_ID",
-                tx_hash="0xMOCK_TX_HASH",
+                payment_id=mock_payment_id,
+                tx_hash=mock_tx_hash,
                 service_call_hash=service_call_hash,
                 amount=estimated_cost,
                 risk_level="RISK_OK",

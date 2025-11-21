@@ -1,10 +1,40 @@
-# MNEE Nexus / Omni-Agent
+# 🤖 MNEE Nexus / Omni-Agent
 
 **Programmable Payment Orchestrator for AI Agents, powered by the MNEE stablecoin.**
 
 > Let multiple AI agents share one MNEE treasury,  
 > pay different service providers on a pay-per-task basis,  
 > and enforce budgets, priorities, and policies across the whole system.
+
+[![MNEE Contract](https://img.shields.io/badge/MNEE-0x8cce...D6cF-blue)](https://etherscan.io/address/0x8ccedbAe4916b79da7F3F612EfB2EB93A2bFD6cF)
+[![Built for MNEE Hackathon](https://img.shields.io/badge/MNEE%20Hackathon-2026-green)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+## 💰 MNEE Integration
+
+**Real Contract, Zero Cost Testing**
+
+This project is built on the official **MNEE USD Stablecoin** contract:
+```
+0x8ccedbAe4916b79da7F3F612EfB2EB93A2bFD6cF (Ethereum Mainnet)
+```
+
+We use **Hardhat's mainnet fork** for development:
+- ✅ All interactions are with the **real MNEE contract**
+- ✅ Full ERC-20 functionality (transfers, approvals, events)
+- ✅ **No real funds needed** - runs on localhost fork
+- ✅ Instant confirmations for rapid testing
+- ✅ **Production-ready** - switch to mainnet by changing RPC URL
+
+### Why Fork?
+
+This approach perfectly balances hackathon requirements with practicality:
+1. **Compliant**: Built on the actual MNEE contract (not a mock)
+2. **Functional**: All smart contract logic works identically to mainnet
+3. **Cost-effective**: No real ETH or MNEE required
+4. **Reproducible**: Anyone can run the same setup locally
+
+See [HARDHAT_FORK_GUIDE.md](HARDHAT_FORK_GUIDE.md) for setup instructions.
 
 ---
 
