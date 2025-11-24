@@ -181,7 +181,7 @@ start_providers() {
 
 stop_providers() {
     print_info "Stopping service providers..."
-    
+
     for provider in imagegen priceoracle batchcompute logarchive; do
         if [ -f "$PID_DIR/$provider.pid" ]; then
             local pid=$(cat "$PID_DIR/$provider.pid")
@@ -189,8 +189,38 @@ stop_providers() {
             rm "$PID_DIR/$provider.pid"
         fi
     done
-    
+
     print_success "Service providers stopped"
+}
+
+start_guardian() {
+    print_header "Starting Guardian Service"
+
+    cd backend
+
+    if [ -f "$PID_DIR/guardian.pid" ]; then
+        print_warning "Guardian may already be running. Stopping first..."
+        stop_guardian
+    fi
+
+    print_info "Starting Guardian Service (Port 8100)..."
+    python3 -m guardian.service > "$LOG_DIR/guardian.log" 2>&1 &
+    echo $! > "$PID_DIR/guardian.pid"
+
+    cd ..
+
+    wait_for_service "http://localhost:8100/" "Guardian Service"
+    print_success "Guardian Service started (PID: $(cat $PID_DIR/guardian.pid))"
+}
+
+stop_guardian() {
+    if [ -f "$PID_DIR/guardian.pid" ]; then
+        local pid=$(cat "$PID_DIR/guardian.pid")
+        print_info "Stopping Guardian (PID: $pid)..."
+        kill $pid 2>/dev/null || true
+        rm "$PID_DIR/guardian.pid"
+        print_success "Guardian stopped"
+    fi
 }
 
 start_backend() {
@@ -242,31 +272,35 @@ start_all() {
     sleep 2
     start_providers
     sleep 2
+    start_guardian
+    sleep 2
     start_backend
-    
+
     print_header "System Ready!"
     print_success "All services are running:"
     echo ""
-    echo "  📝 Hardhat Node:        http://localhost:8545"
-    echo "  🖼️  ImageGen Provider:   http://localhost:8001/docs"
-    echo "  💰 PriceOracle Provider: http://localhost:8002/docs"
-    echo "  🔢 BatchCompute Provider: http://localhost:8003/docs"
-    echo "  📋 LogArchive Provider:  http://localhost:8004/docs"
-    echo "  🚀 Backend API:          http://localhost:8000/docs"
+    echo "  Hardhat Node:          http://localhost:8545"
+    echo "  ImageGen Provider:     http://localhost:8001/docs"
+    echo "  PriceOracle Provider:  http://localhost:8002/docs"
+    echo "  BatchCompute Provider: http://localhost:8003/docs"
+    echo "  LogArchive Provider:   http://localhost:8004/docs"
+    echo "  Guardian Service:      http://localhost:8100/"
+    echo "  Backend API:           http://localhost:8000/docs"
     echo ""
-    echo "  📊 Logs directory: $LOG_DIR/"
-    echo "  🔢 PIDs directory: $PID_DIR/"
+    echo "  Logs directory: $LOG_DIR/"
+    echo "  PIDs directory: $PID_DIR/"
     echo ""
     print_info "Press Ctrl+C to stop all services, or run: ./start_all.sh stop"
 }
 
 stop_all() {
     print_header "Stopping MNEE Nexus / Omni-Agent"
-    
+
     stop_backend
+    stop_guardian
     stop_providers
     stop_hardhat
-    
+
     print_success "All services stopped"
 }
 

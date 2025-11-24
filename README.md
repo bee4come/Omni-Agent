@@ -101,9 +101,22 @@ High-level architecture:
   - `PaymentRouter` – routes MNEE payments from a treasury to providers and emits `PaymentExecuted` events.
 
 - **Backend / Orchestration**
+  - **Guardian Service (Port 8100):**
+    - Isolated key management service
+    - Sole holder of TREASURY_PRIVATE_KEY
+    - Provides secure signing endpoints
+    - TEE-ready architecture
   - Policy Engine:
     - Maintains budgets per agent and per service.
     - Decides allow / deny / downgrade requests.
+  - Payment Client:
+    - Calls Guardian Service for all signing operations
+    - Never holds private keys directly
+  - **Swarm Architecture:**
+    - Manager Agent: Plans and decomposes user requests
+    - Customer Agent: Executes purchases
+    - Merchant Agent: Provides services and quotes
+    - Treasurer Agent: Records all transactions
   - Omni-Agent:
     - LLM-based agent (LangChain / LangGraph).
     - Uses tools wrapped with payment logic.
