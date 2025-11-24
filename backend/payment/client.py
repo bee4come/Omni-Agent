@@ -21,10 +21,9 @@ class PaymentResult(BaseModel):
 
 class PaymentClient:
     def __init__(self, policy_engine=None):
-        # Initialize Mock MNEE SDK
+        # Initialize MNEE SDK (Web3)
         self.mnee = Mnee({
-            "environment": "sandbox",
-            "apiKey": os.getenv("MNEE_API_KEY", "mock-api-key")
+            "environment": os.getenv("MNEE_ENV", "local")
         })
         
         self.policy_engine = policy_engine
@@ -33,7 +32,9 @@ class PaymentClient:
         self.usage_records = []
         self.daily_spending = {} 
         
-        self.treasury_wif = os.getenv("TREASURY_PRIVATE_KEY", "WIF_TREASURY_KEY")
+        self.treasury_key = os.getenv("TREASURY_PRIVATE_KEY", "")
+        if not self.treasury_key:
+             print("WARNING: TREASURY_PRIVATE_KEY not set. Payments will fail.")
 
     def build_service_call_hash(self, service_id: str, agent_id: str, task_id: str, payload_dict: Dict[str, Any]) -> str:
         """
@@ -53,20 +54,19 @@ class PaymentClient:
         override_price: Optional[float] = None
     ) -> PaymentResult:
         """
-        Complete payment flow using MNEE SDK (Mock).
+        Complete payment flow using MNEE Payment Router.
         """
         # Step 1: Compute serviceCallHash
         service_call_hash = self.build_service_call_hash(service_id, agent_id, task_id, payload_dict)
         
-        # Step 2: Get service details and cost
+        # Step 2: Get service details and cost (For Policy Check only)
+        # The actual cost is determined on-chain by the Registry
         service = None
         estimated_cost = 0.0
-        provider_address = "unknown-provider"
         
         if self.policy_engine:
             service = self.policy_engine.services.get(service_id)
             if service:
-                provider_address = service.providerAddress
                 if override_price is not None:
                     estimated_cost = override_price * quantity
                 else:
@@ -93,32 +93,42 @@ class PaymentClient:
             
             if decision.action == "DOWNGRADE":
                 quantity = decision.approved_quantity
+                # Recalculate cost for record keeping
                 if override_price is not None:
                     estimated_cost = override_price * quantity
                 elif service:
                     estimated_cost = service.unitPrice * quantity
         
-        # Step 4: Execute MNEE Transfer
+        # Step 4: Execute MNEE Payment Router Transaction
         try:
-            print(f"[PAYMENT_CLIENT] Initiating MNEE Transfer...")
-            print(f"  Amount: {estimated_cost} MNEE")
-            print(f"  To: {provider_address}")
+            print(f"[PAYMENT_CLIENT] Initiating Payment via Router...")
+            print(f"  Service: {service_id}")
+            print(f"  Cost (Est): {estimated_cost} MNEE")
             
-            # Prepare recipients
-            recipients = [
-                { "address": provider_address, "amount": estimated_cost }
-            ]
-            
-            # Call SDK Transfer
-            response = self.mnee.transfer(recipients, self.treasury_wif)
+            # Ensure Approval (Idempotent)
+            # We assume estimated_cost is correct enough for approval, 
+            # or we approve max once.
+            # Using a large amount for approval to avoid repeated txs
+            if self.treasury_key:
+                 self.mnee.ensure_approval(self.treasury_key)
+
+            # Call SDK Router Pay
+            response = self.mnee.pay_for_service(
+                service_id=service_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                quantity=quantity,
+                service_call_hash=service_call_hash,
+                private_key=self.treasury_key
+            )
             
             ticket_id = response.ticketId
-            print(f"[PAYMENT_CLIENT] Transfer Successful! Ticket: {ticket_id}")
+            print(f"[PAYMENT_CLIENT] Payment Successful! ID: {ticket_id}")
             
             result = PaymentResult(
                 success=True,
-                payment_id=ticket_id, # In MNEE, ticketId/txid is the proof
-                tx_hash=ticket_id,
+                payment_id=ticket_id,
+                tx_hash=response.rawtx,
                 service_call_hash=service_call_hash,
                 amount=estimated_cost,
                 risk_level="RISK_OK",
@@ -163,8 +173,17 @@ class PaymentClient:
     
     def get_treasury_balance(self) -> float:
         try:
-            balance_info = self.mnee.balance("treasury-wallet-address")
-            return balance_info['decimalAmount']
+            # We need the address associated with the key
+            # But client doesn't store address directly. 
+            # We can derive it or just ask SDK to balance(address) if we knew it.
+            # For now, let's assume we can get it from the key in SDK or configured.
+            # The SDK's balance method takes an address.
+            from eth_account import Account
+            if self.treasury_key:
+                address = Account.from_key(self.treasury_key).address
+                balance_info = self.mnee.balance(address)
+                return balance_info['decimalAmount']
+            return 0.0
         except Exception as e:
             print(f"[PAYMENT_CLIENT] Failed to get balance: {e}")
             return 0.0

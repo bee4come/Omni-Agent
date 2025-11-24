@@ -11,20 +11,11 @@ echo ""
 
 cd "$(dirname "$0")/../contracts"
 
-# Check if .env exists
+# Check if .env exists, if not create a default one
 if [ ! -f .env ]; then
     echo "⚠️  No .env file found in contracts/"
-    echo "Creating .env from .env.example..."
-    cp .env.example .env
-    echo ""
-    echo "📝 Please edit contracts/.env and add:"
-    echo "   ETH_MAINNET_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
-    echo ""
-    echo "Get a free API key from:"
-    echo "   - Alchemy: https://www.alchemy.com/"
-    echo "   - Infura: https://infura.io/"
-    echo ""
-    exit 1
+    echo "Creating .env with public RPC..."
+    echo "ETH_MAINNET_RPC_URL=https://eth.llamarpc.com" > .env
 fi
 
 # Check if node_modules exists
@@ -35,6 +26,7 @@ if [ ! -d "node_modules" ]; then
 fi
 
 echo "🚀 Starting Hardhat node with mainnet fork..."
+echo "   Using RPC from .env"
 echo ""
 echo "📍 MNEE Contract: 0x8ccedbAe4916b79da7F3F612EfB2EB93A2bFD6cF"
 echo "🔗 RPC: http://127.0.0.1:8545"

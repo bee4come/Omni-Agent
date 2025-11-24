@@ -1,33 +1,34 @@
 services:
   - id: "IMAGE_GEN_PREMIUM"
     unitPrice: 1.0
-    providerAddress: "1ImageGenProviderAddressXyZ"
+    providerAddress: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" # Hardhat Account #0
     active: true
     isVerified: true
-    metadataURI: "https://mnee.network/services/image-gen-premium"
+    metadataURI: "ipfs://Qm.../image-gen-metadata.json"
     maxDailySpending: 50.0
     allowedAgents: ["user-agent", "ops-agent"]
 
   - id: "PRICE_ORACLE"
     unitPrice: 0.05
-    providerAddress: "1OracleProviderAddressAbC"
+    providerAddress: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     active: true
     isVerified: true
-    metadataURI: "https://mnee.network/services/price-oracle"
+    metadataURI: "ipfs://Qm.../price-oracle-metadata.json"
     maxDailySpending: 10.0
 
   - id: "BATCH_COMPUTE"
     unitPrice: 3.0
-    providerAddress: "1BatchProviderAddressDeF"
+    providerAddress: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     active: true
     isVerified: false
-    metadataURI: "https://mnee.network/services/batch-compute"
+    metadataURI: "ipfs://Qm.../batch-compute-metadata.json"
     maxDailySpending: 100.0
     allowedAgents: ["batch-agent", "ops-agent"]
 
   - id: "LOG_ARCHIVE"
     unitPrice: 0.01
-    providerAddress: "1LogProviderAddressGhI"
+    providerAddress: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     active: true
     isVerified: true
-    metadataURI: "https://mnee.network/services/log-archive"
+    metadataURI: "ipfs://Qm.../log-archive-metadata.json"
+    maxDailySpending: 100.0
