@@ -2,7 +2,22 @@ agents:
   - id: "user-agent"
     priority: "HIGH"
     dailyBudget: 100.0
-    maxPerCall: 10.0
+    maxPerCall: 50.0
+
+  - id: "startup-designer"
+    priority: "MEDIUM"
+    dailyBudget: 50.0
+    maxPerCall: 5.0  # ImageGen costs 1.0, so this is safe
+
+  - id: "startup-analyst"
+    priority: "MEDIUM"
+    dailyBudget: 20.0
+    maxPerCall: 2.0
+
+  - id: "startup-archivist"
+    priority: "LOW"
+    dailyBudget: 5.0
+    maxPerCall: 0.1
 
   - id: "batch-agent"
     priority: "LOW"

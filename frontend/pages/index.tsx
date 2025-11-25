@@ -3,106 +3,75 @@ import axios from 'axios';
 import { Layout } from '../components/Layout';
 import { ChatInterface } from '../components/ChatInterface';
 import { Dashboard } from '../components/Dashboard';
-import { PolicyConsole } from '../components/PolicyConsole';
 import { ConfigPanel } from '../components/ConfigPanel';
+import { AuditLog } from '../components/AuditLog';
+import { TransactionStream } from '../components/TransactionStream';
 import { TreasuryStatus } from '../components/TreasuryStatus';
-import { PolicyLogsPreview } from '../components/PolicyLogsPreview';
 
 export default function App() {
-    const [activeTab, setActiveTab] = useState<'chat' | 'dashboard' | 'policy' | 'config'>('chat');
+    const [activeTab, setActiveTab] = useState<'chat' | 'dashboard' | 'config'>('chat');
     const [treasury, setTreasury] = useState<any>(null);
     const [policyLogs, setPolicyLogs] = useState<any[]>([]);
     const [transactions, setTransactions] = useState<any[]>([]);
     const [services, setServices] = useState<any[]>([]);
     const [stats, setStats] = useState<any>(null);
 
-    const fetchTreasury = async () => {
+    const fetchAll = async () => {
         try {
-            const res = await axios.get('/api/treasury');
-            setTreasury(res.data);
+            const [tRes, pRes, txRes, sRes, statRes] = await Promise.all([
+                axios.get('/api/treasury'),
+                axios.get('/api/policy/logs?limit=20'),
+                axios.get('/api/transactions?limit=20'),
+                axios.get('/api/services'),
+                axios.get('/api/stats')
+            ]);
+            
+            setTreasury(tRes.data);
+            setPolicyLogs(pRes.data.logs || []);
+            setTransactions(txRes.data.transactions || []);
+            setServices(sRes.data.services || []);
+            setStats(statRes.data);
         } catch (e) {
-            console.error('Error fetching treasury:', e);
+            console.error("Data fetch error", e);
         }
-    };
-
-    const fetchPolicyLogs = async () => {
-        try {
-            const res = await axios.get('/api/policy/logs');
-            setPolicyLogs(res.data.logs || []);
-        } catch (e) {
-            console.error('Error fetching policy logs:', e);
-        }
-    };
-
-    const fetchTransactions = async () => {
-        try {
-            const res = await axios.get('/api/transactions?limit=50');
-            setTransactions(res.data.transactions || []);
-        } catch (e) {
-            console.error('Error fetching transactions:', e);
-        }
-    };
-
-    const fetchServices = async () => {
-        try {
-            const res = await axios.get('/api/services');
-            setServices(res.data.services || []);
-        } catch (e) {
-            console.error('Error fetching services:', e);
-        }
-    };
-
-    const fetchStats = async () => {
-        try {
-            const res = await axios.get('/api/stats');
-            setStats(res.data);
-        } catch (e) {
-            console.error('Error fetching stats:', e);
-        }
-    };
-
-    const refreshAll = () => {
-        fetchTreasury();
-        fetchPolicyLogs();
-        fetchTransactions();
-        fetchStats();
     };
 
     useEffect(() => {
-        // Initial fetch
-        refreshAll();
-        fetchServices(); // Services change less often
-        
-        // Poll every 3 seconds
-        const interval = setInterval(() => {
-            refreshAll();
-        }, 3000);
-        
+        fetchAll();
+        const interval = setInterval(fetchAll, 3000);
         return () => clearInterval(interval);
     }, []);
 
     return (
         <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
+            
+            {/* MAIN COMMAND CENTER */}
             {activeTab === 'chat' && (
-                <div className="grid grid-cols-12 gap-8">
-                    <div className="col-span-12 lg:col-span-8">
-                        <ChatInterface onMessageSent={refreshAll} />
-                    </div>
-                    <div className="col-span-12 lg:col-span-4 space-y-6">
-                        <TreasuryStatus treasury={treasury} />
-                        <PolicyLogsPreview logs={policyLogs} />
+                <div className="space-y-8">
+                    {/* Top: Chat & Live Brain */}
+                    <ChatInterface onMessageSent={fetchAll} />
+                    
+                    {/* Bottom: Data Streams */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div className="lg:col-span-1">
+                            <TreasuryStatus treasury={treasury} />
+                        </div>
+                        <div className="lg:col-span-1">
+                            <AuditLog logs={policyLogs} />
+                        </div>
+                        <div className="lg:col-span-1">
+                            <TransactionStream transactions={transactions} />
+                        </div>
                     </div>
                 </div>
             )}
 
+            {/* ANALYTICS DASHBOARD */}
             {activeTab === 'dashboard' && (
                 <Dashboard stats={stats} transactions={transactions} />
             )}
 
-            {activeTab === 'policy' && (
-                <PolicyConsole logs={policyLogs} />
-            )}
-
+            {/* CONFIGURATION */}
             {activeTab === 'config' && (
                 <ConfigPanel treasury={treasury} services={services} />
             )}

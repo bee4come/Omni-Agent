@@ -1,11 +1,11 @@
 import React from 'react';
-import { Activity, Send, TrendingUp, ShieldAlert, Settings } from 'lucide-react';
+import { Activity, Send, TrendingUp, Settings } from 'lucide-react';
 import { cn } from './ui/Card';
 
 interface LayoutProps {
     children: React.ReactNode;
-    activeTab: 'chat' | 'dashboard' | 'policy' | 'config';
-    setActiveTab: (tab: 'chat' | 'dashboard' | 'policy' | 'config') => void;
+    activeTab: 'chat' | 'dashboard' | 'config';
+    setActiveTab: (tab: 'chat' | 'dashboard' | 'config') => void;
 }
 
 export const Layout = ({ children, activeTab, setActiveTab }: LayoutProps) => {
@@ -18,7 +18,7 @@ export const Layout = ({ children, activeTab, setActiveTab }: LayoutProps) => {
                         <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
                             <Activity className="w-5 h-5 text-white" />
                         </div>
-                        <h1 className="font-bold text-lg tracking-tight">MNEE Nexus <span className="text-slate-500 font-normal">/ Omni-Agent</span></h1>
+                        <h1 className="font-bold text-lg tracking-tight">MNEE Nexus <span className="text-slate-500 font-normal">/ Billing Hub</span></h1>
                     </div>
                     <div className="flex items-center gap-4">
                         <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900 rounded-full border border-slate-800">
@@ -34,9 +34,8 @@ export const Layout = ({ children, activeTab, setActiveTab }: LayoutProps) => {
                 <div className="max-w-7xl mx-auto px-6">
                     <div className="flex gap-1">
                         {[
-                            { id: 'chat', label: 'Chat Interface', icon: Send },
-                            { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
-                            { id: 'policy', label: 'Policy Console', icon: ShieldAlert },
+                            { id: 'chat', label: 'Live Command Center', icon: Send },
+                            { id: 'dashboard', label: 'Analytics Dashboard', icon: TrendingUp },
                             { id: 'config', label: 'Configuration', icon: Settings }
                         ].map(tab => (
                             <button
@@ -45,8 +44,8 @@ export const Layout = ({ children, activeTab, setActiveTab }: LayoutProps) => {
                                 className={cn(
                                     "px-4 py-3 text-sm font-medium transition-all border-b-2 flex items-center gap-2",
                                     activeTab === tab.id
-                                        ? "border-indigo-500 text-indigo-400"
-                                        : "border-transparent text-slate-500 hover:text-slate-300"
+                                        ? "border-indigo-500 text-indigo-400 bg-slate-800/50"
+                                        : "border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/30"
                                 )}
                             >
                                 <tab.icon className="w-4 h-4" />

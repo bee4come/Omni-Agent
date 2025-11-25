@@ -13,7 +13,7 @@ const config: HardhatUserConfig = {
                 // Fork Ethereum mainnet to use real MNEE contract
                 url: process.env.ETH_MAINNET_RPC_URL || "https://eth-mainnet.g.alchemy.com/v2/demo",
                 blockNumber: 21000000, // Recent block for consistent testing
-                enabled: true,
+                enabled: false,
             },
             accounts: {
                 // Generate accounts with balance for testing

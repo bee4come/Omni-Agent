@@ -83,9 +83,13 @@ async function main() {
 
   for (const service of services) {
     const serviceId = hre.ethers.id(service.name);
-    const registryWithSigner = registry.connect(service.provider);
-    
-    const tx = await registryWithSigner.registerService(serviceId, service.unitPrice);
+    const tx = await registry.registerService(
+      serviceId, 
+      service.provider.address, 
+      service.unitPrice,
+      "ipfs://placeholder", // metadataURI
+      true // isVerified
+    );
     await tx.wait();
     
     console.log(`  ✅ ${service.name} registered`);

@@ -131,9 +131,25 @@ deploy_contracts() {
     # Update backend .env with deployment addresses
     if [ -f "contracts/deployments.json" ]; then
         print_info "Updating backend configuration with contract addresses..."
-        # This would parse deployments.json and update backend/.env
-        # For now, we'll print instructions
-        print_warning "Please manually update backend/.env with the contract addresses from contracts/deployments.json"
+        
+        local mnee_addr=$(jq -r '.contracts.mneeToken' contracts/deployments.json)
+        local registry_addr=$(jq -r '.contracts.serviceRegistry' contracts/deployments.json)
+        local router_addr=$(jq -r '.contracts.paymentRouter' contracts/deployments.json)
+        
+        if [ -f "backend/.env" ]; then
+            # Use a temporary file for sed to avoid issues on some systems
+            sed -e "s|MNEE_TOKEN_ADDRESS=.*|MNEE_TOKEN_ADDRESS=$mnee_addr|" \
+                -e "s|SERVICE_REGISTRY_ADDRESS=.*|SERVICE_REGISTRY_ADDRESS=$registry_addr|" \
+                -e "s|PAYMENT_ROUTER_ADDRESS=.*|PAYMENT_ROUTER_ADDRESS=$router_addr|" \
+                backend/.env > backend/.env.tmp && mv backend/.env.tmp backend/.env
+            
+            print_success "Updated backend/.env with:"
+            echo "  MNEE: $mnee_addr"
+            echo "  Registry: $registry_addr"
+            echo "  Router: $router_addr"
+        else
+            print_error "backend/.env not found!"
+        fi
     fi
     
     print_success "Contracts deployed successfully"
