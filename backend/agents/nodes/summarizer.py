@@ -104,8 +104,10 @@ def summarizer_node(state: GraphState) -> GraphState:
             # Add payment info if paid
             if step.tx_hash:
                 output_lines.append(f"  Payment TX: {step.tx_hash[:16]}...")
-            if step.amount_mnee:
-                output_lines.append(f"  Cost: {step.amount_mnee} MNEE")
+            # Get amount from output if available
+            amount = step.output.get('amount_mnee', 0) if step.output else 0
+            if amount:
+                output_lines.append(f"  Cost: {amount} MNEE")
 
             output_lines.append("")
 
@@ -117,8 +119,12 @@ def summarizer_node(state: GraphState) -> GraphState:
 
         output_lines.append("")
 
-    # Add financial summary
-    total_spent = sum(s.amount_mnee for s in successful_steps if s.amount_mnee)
+    # Add financial summary - extract from output dict
+    def get_step_amount(s):
+        if s.output and isinstance(s.output, dict):
+            return s.output.get('amount_mnee', 0) or 0
+        return 0
+    total_spent = sum(get_step_amount(s) for s in successful_steps)
     if total_spent > 0:
         output_lines.append(f"\n[Financial Summary]")
         output_lines.append(f"Total Spent: {total_spent:.2f} MNEE")

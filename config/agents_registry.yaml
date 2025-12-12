@@ -1,0 +1,100 @@
+# Agent Registry Configuration
+# Defines agent capabilities, pricing, and reputation for the decentralized labor market
+
+agents:
+  user-agent:
+    name: "User Agent (CEO)"
+    description: "Primary coordination agent that manages user requests and delegates to specialists"
+    capabilities:
+      - coordination
+      - task_routing
+      - budget_management
+    pricing:
+      coordination: 0.01
+      task_routing: 0.005
+    base_fee: 0.01
+    reputation_score: 5.0
+    success_rate: 1.0
+
+  startup-designer:
+    name: "Designer Agent"
+    description: "Creative specialist for image generation, logos, and visual design"
+    capabilities:
+      - image_gen
+      - logo_creation
+      - banner_design
+      - ui_mockup
+    pricing:
+      image_gen: 1.0
+      logo_creation: 3.0
+      banner_design: 2.0
+      ui_mockup: 5.0
+    base_fee: 0.5
+    reputation_score: 4.5
+    success_rate: 0.92
+
+  startup-analyst:
+    name: "Analyst Agent"
+    description: "Data analysis, market research, and computational tasks"
+    capabilities:
+      - price_oracle
+      - market_analysis
+      - batch_compute
+      - competitor_analysis
+      - trend_forecasting
+    pricing:
+      price_oracle: 0.05
+      market_analysis: 0.5
+      batch_compute: 3.0
+      competitor_analysis: 1.0
+      trend_forecasting: 2.0
+    base_fee: 0.05
+    reputation_score: 4.8
+    success_rate: 0.98
+
+  startup-archivist:
+    name: "Archivist Agent"
+    description: "Logging, storage, audit trails, and record management"
+    capabilities:
+      - log_archive
+      - data_storage
+      - audit_trail
+      - report_generation
+    pricing:
+      log_archive: 0.02
+      data_storage: 0.1
+      audit_trail: 0.05
+      report_generation: 0.3
+    base_fee: 0.02
+    reputation_score: 4.9
+    success_rate: 0.99
+
+  batch-agent:
+    name: "Batch Processor"
+    description: "High-throughput batch processing and ML inference"
+    capabilities:
+      - batch_compute
+      - ml_inference
+      - data_pipeline
+    pricing:
+      batch_compute: 2.5
+      ml_inference: 5.0
+      data_pipeline: 3.0
+    base_fee: 1.0
+    reputation_score: 4.6
+    success_rate: 0.95
+
+  merchant-agent:
+    name: "Merchant Agent"
+    description: "E-commerce and transaction processing specialist"
+    capabilities:
+      - payment_processing
+      - order_fulfillment
+      - inventory_check
+    pricing:
+      payment_processing: 0.1
+      order_fulfillment: 0.5
+      inventory_check: 0.05
+    base_fee: 0.05
+    reputation_score: 4.7
+    success_rate: 0.96

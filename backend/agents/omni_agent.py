@@ -19,6 +19,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from policy.engine import PolicyEngine
 from payment.client import PaymentClient
 from payment.wrapper import PaidToolWrapper
+from payment.a2a_client import get_a2a_client
 from policy.logger import SystemLogger
 from agents.tools import definitions
 
@@ -28,6 +29,9 @@ from .nodes.guardian import guardian_node
 from .nodes.executor import executor_node
 from .nodes.summarizer import summarizer_node
 from .nodes.feedback import policy_feedback_node
+from .nodes.verifier import verifier_node, get_verifier
+from .nodes.escrow import escrow_lock_node, escrow_release_node, get_escrow_manager
+from .registry import get_registry
 
 
 # ============================================================ 
@@ -190,21 +194,41 @@ class OmniAgent:
         # Tools instance - will be set per agent during run
         self.current_tools = None
         
+        # A2A client for agent-to-agent payments
+        self.a2a_client = get_a2a_client()
+        
+        # Escrow manager for trustless transactions
+        self.escrow_manager = get_escrow_manager(self.a2a_client)
+        
+        # Verifier for task output verification
+        self.verifier = get_verifier()
+        
+        # Agent registry for dynamic discovery
+        self.registry = get_registry()
+        
         # Build the graph
         self.graph = self._build_graph()
         
         print("[OMNI_AGENT] Initialized with LangGraph stateful orchestrator")
     
     def _build_graph(self) -> StateGraph:
-        """Build the LangGraph stateful graph"""
+        """
+        Build the LangGraph stateful graph with Escrow-Verify-Release protocol.
+        
+        Flow:
+        1. Planner -> Guardian -> Escrow Lock -> Executor -> Verifier -> Escrow Release -> Summarizer
+        2. Guardian block -> Feedback -> Summarizer
+        3. Executor early_exit -> Feedback -> Summarizer
+        """
         workflow = StateGraph(GraphState)
         
         # Add Nodes
         workflow.add_node("planner", planner_node)
-        # Inject logger and policy_engine into guardian_node
         workflow.add_node("guardian", lambda state: guardian_node(state, self.logger, self.policy_engine))
-        # Executor needs tool registry AND policy_engine for context
-        workflow.add_node("executor", lambda state: executor_node(state, self.current_tools, self.policy_engine))
+        workflow.add_node("escrow_lock", lambda state: escrow_lock_node(state, self.escrow_manager))
+        workflow.add_node("executor", lambda state: executor_node(state, self.current_tools, self.policy_engine, self.a2a_client))
+        workflow.add_node("verifier", lambda state: verifier_node(state, self.verifier))
+        workflow.add_node("escrow_release", lambda state: escrow_release_node(state, self.escrow_manager))
         workflow.add_node("summarizer", summarizer_node)
         workflow.add_node("feedback", policy_feedback_node)
         
@@ -213,21 +237,30 @@ class OmniAgent:
         
         workflow.add_edge("planner", "guardian")
         
-        # Guardian -> Executor or Feedback
+        # Guardian -> Escrow Lock or Feedback
         def check_guardian(state: GraphState) -> str:
             if state.guardian_block:
                 return "feedback"
-            return "executor"
+            return "escrow_lock"
             
         workflow.add_conditional_edges("guardian", check_guardian)
         
-        # Executor -> Summarizer or Feedback (if early exit due to deny)
+        # Escrow Lock -> Executor
+        workflow.add_edge("escrow_lock", "executor")
+        
+        # Executor -> Verifier or Feedback (if early exit)
         def check_executor(state: GraphState) -> str:
             if state.early_exit:
                 return "feedback"
-            return "summarizer"
+            return "verifier"
             
         workflow.add_conditional_edges("executor", check_executor)
+        
+        # Verifier -> Escrow Release
+        workflow.add_edge("verifier", "escrow_release")
+        
+        # Escrow Release -> Summarizer
+        workflow.add_edge("escrow_release", "summarizer")
         
         workflow.add_edge("feedback", "summarizer")
         workflow.add_edge("summarizer", END)
@@ -267,12 +300,16 @@ class OmniAgent:
             
             # Extract steps for API response
             steps_data = [s.model_dump() for s in final_state.get("steps", [])]
+            a2a_transfers_data = [t.model_dump() for t in final_state.get("a2a_transfers", [])]
+            escrow_records_data = [e.model_dump() for e in final_state.get("escrow_records", [])]
             
             return {
                 "output": final_state.get("final_answer", "No answer generated."),
                 "agent_id": agent_id,
                 "messages": final_state.get("messages", []),
                 "steps": steps_data,
+                "a2a_transfers": a2a_transfers_data,
+                "escrow_records": escrow_records_data,
                 "guardian_reasoning": final_state.get("guardian_reasoning"),
                 "guardian_risk_score": final_state.get("guardian_risk_score", 0),
                 "guardian_block": final_state.get("guardian_block", False)

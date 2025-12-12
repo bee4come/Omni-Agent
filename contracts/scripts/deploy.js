@@ -55,6 +55,44 @@ async function main() {
   const routerAddress = await router.getAddress();
   console.log("✅ PaymentRouter deployed to:", routerAddress, "\n");
 
+  // Deploy AgentWallet for A2A payments
+  console.log("📝 Deploying MNEEAgentWallet...");
+  const AgentWallet = await hre.ethers.getContractFactory("MNEEAgentWallet");
+  const agentWallet = await AgentWallet.deploy(mneeAddress);
+  await agentWallet.waitForDeployment();
+  const agentWalletAddress = await agentWallet.getAddress();
+  console.log("✅ AgentWallet deployed to:", agentWalletAddress, "\n");
+
+  // Register agents in wallet
+  console.log("📝 Registering agents...\n");
+  const agentList = [
+    { id: "user-agent", name: "Primary User Agent" },
+    { id: "startup-designer", name: "Designer Agent" },
+    { id: "startup-analyst", name: "Analyst Agent" },
+    { id: "startup-archivist", name: "Archivist Agent" }
+  ];
+  
+  for (const agent of agentList) {
+    await agentWallet.registerAgent(agent.id, agent.name);
+    console.log(`  ✅ ${agent.id} registered`);
+  }
+  console.log("");
+
+  // Fund agents with MNEE from treasury
+  console.log("📝 Funding agent wallets...\n");
+  const MockMNEE = await hre.ethers.getContractFactory("MockMNEE");
+  const mnee = MockMNEE.attach(mneeAddress);
+  
+  // Approve AgentWallet to spend treasury MNEE
+  const fundAmount = hre.ethers.parseUnits("100.0", 18); // 100 MNEE each
+  await mnee.approve(agentWalletAddress, hre.ethers.parseUnits("1000.0", 18));
+  
+  for (const agent of agentList) {
+    await agentWallet.fundAgent(agent.id, fundAmount);
+    console.log(`  ✅ ${agent.id} funded with 100 MNEE`);
+  }
+  console.log("");
+
   // Register services
   console.log("📝 Registering services...\n");
 
@@ -104,7 +142,8 @@ async function main() {
     contracts: {
       mneeToken: mneeAddress,
       serviceRegistry: registryAddress,
-      paymentRouter: routerAddress
+      paymentRouter: routerAddress,
+      agentWallet: agentWalletAddress
     },
     accounts: {
       deployer: deployer.address,
@@ -136,6 +175,7 @@ async function main() {
   console.log(`MNEE_TOKEN_ADDRESS=${mneeAddress}`);
   console.log(`SERVICE_REGISTRY_ADDRESS=${registryAddress}`);
   console.log(`PAYMENT_ROUTER_ADDRESS=${routerAddress}`);
+  console.log(`AGENT_WALLET_ADDRESS=${agentWalletAddress}`);
   console.log(`TREASURY_PRIVATE_KEY=${process.env.TREASURY_PRIVATE_KEY || deployer.privateKey || "YOUR_PRIVATE_KEY_HERE"}`);
   console.log("\n====================================");
   console.log("✅ Deployment Complete!");

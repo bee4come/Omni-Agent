@@ -1,11 +1,11 @@
-from typing import Any, Dict, Callable
-from ..state import GraphState, StepRecord, PlanStep
+from typing import Any, Dict, Callable, Optional
+from ..state import GraphState, StepRecord, PlanStep, A2APaymentRecord
 
 # We need a way to resolve tool_name to a function and wrapper.
 # In a real app, these would be injected or imported from a registry.
 # For now, we'll assume they are passed in or we import a registry.
 
-def executor_node(state: GraphState, tool_registry: Any, policy_engine: Any) -> GraphState:
+def executor_node(state: GraphState, tool_registry: Any, policy_engine: Any = None, a2a_client: Any = None) -> GraphState:
     """
     Executor Node: Iterates through the plan and executes tools.
     
@@ -32,10 +32,50 @@ def executor_node(state: GraphState, tool_registry: Any, policy_engine: Any) -> 
             if agent_policy:
                 project_id = agent_policy.project_id
 
-        # 1. Guardian Pre-check (Inline fallback)
-        # (The main Guardian node ran before this, but we keep a sanity check or remove it)
-        # Let's remove the hardcoded check since Guardian Node covers it intelligently now.
-        # Or keep it as a "failsafe".
+        # 1. A2A Payment - if task is delegated to a different agent
+        a2a_payment_record = None
+        if a2a_client and step.agent_id != state.active_agent:
+            # This is a delegation: active_agent pays step.agent_id
+            delegation_cost = step.max_mnee_cost * 0.1  # 10% delegation fee
+            if delegation_cost < 0.01:
+                delegation_cost = 0.01  # Minimum fee
+                
+            print(f"    [A2A] Delegating: {state.active_agent} -> {step.agent_id} ({delegation_cost:.3f} MNEE)")
+            
+            try:
+                a2a_result = a2a_client.execute_a2a_payment(
+                    from_agent=state.active_agent,
+                    to_agent=step.agent_id,
+                    amount=delegation_cost,
+                    task_description=step.description
+                )
+                
+                a2a_payment_record = A2APaymentRecord(
+                    from_agent=state.active_agent,
+                    to_agent=step.agent_id,
+                    amount=delegation_cost,
+                    task_description=step.description,
+                    tx_hash=a2a_result.get("tx_hash"),
+                    success=a2a_result.get("success", False)
+                )
+                
+                # Add to state's a2a_transfers list
+                state.a2a_transfers.append(a2a_payment_record)
+                
+                if a2a_result.get("success"):
+                    print(f"    [A2A] Payment success: TX {a2a_result.get('tx_hash', '')[:16]}...")
+                else:
+                    print(f"    [A2A] Payment failed: {a2a_result.get('error')}")
+                    
+            except Exception as e:
+                print(f"    [A2A] Payment error: {e}")
+                a2a_payment_record = A2APaymentRecord(
+                    from_agent=state.active_agent,
+                    to_agent=step.agent_id,
+                    amount=delegation_cost,
+                    task_description=step.description,
+                    success=False
+                )
         
         # 2. Resolve Tool
         tool_func = getattr(tool_registry, step.tool_name, None)
@@ -90,7 +130,8 @@ def executor_node(state: GraphState, tool_registry: Any, policy_engine: Any) -> 
                 policy_action=result.get("policyAction", policy_action),
                 risk_level=result.get("riskLevel", risk_level),
                 error=error_msg,
-                status=status
+                status=status,
+                a2a_payment=a2a_payment_record
             )
             state.steps.append(record)
             

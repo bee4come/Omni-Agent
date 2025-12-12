@@ -1,30 +1,27 @@
+# MNEE Agent Configuration
+# Each agent has its own budget and priority level
+
 agents:
+  # Primary agent - handles user requests, can use all tools
   - id: "user-agent"
     priority: "HIGH"
     dailyBudget: 100.0
     maxPerCall: 50.0
 
+  # Designer agent - specialized for image generation
   - id: "startup-designer"
     priority: "MEDIUM"
     dailyBudget: 50.0
-    maxPerCall: 5.0  # ImageGen costs 1.0, so this is safe
+    maxPerCall: 5.0  # ImageGen costs 1.0 MNEE
 
+  # Analyst agent - data analysis and price queries
   - id: "startup-analyst"
     priority: "MEDIUM"
-    dailyBudget: 20.0
-    maxPerCall: 2.0
+    dailyBudget: 50.0
+    maxPerCall: 10.0  # BatchCompute costs 3.0 MNEE
 
+  # Archivist agent - log storage
   - id: "startup-archivist"
     priority: "LOW"
     dailyBudget: 5.0
-    maxPerCall: 0.1
-
-  - id: "batch-agent"
-    priority: "LOW"
-    dailyBudget: 50.0
-    maxPerCall: 20.0
-
-  - id: "ops-agent"
-    priority: "MEDIUM"
-    dailyBudget: 30.0
-    maxPerCall: 5.0
+    maxPerCall: 0.5  # LogArchive costs 0.01 MNEE

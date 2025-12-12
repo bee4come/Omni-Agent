@@ -18,6 +18,74 @@ class PlanStep(BaseModel):
     max_mnee_cost: float
     params: Dict[str, Any]
 
+class A2APaymentRecord(BaseModel):
+    """Record of an A2A payment during task delegation"""
+    from_agent: str
+    to_agent: str
+    amount: float
+    task_description: str
+    tx_hash: Optional[str] = None
+    success: bool = False
+
+
+class EscrowStatus:
+    """Escrow state constants for trustless Agent transactions"""
+    CREATED = "created"      # Escrow created, funds locked
+    SUBMITTED = "submitted"  # Work submitted by merchant
+    VERIFYING = "verifying"  # Under verification
+    RELEASED = "released"    # Funds released to merchant
+    REFUNDED = "refunded"    # Funds returned to customer
+    DISPUTED = "disputed"    # In dispute resolution
+
+
+class EscrowRecord(BaseModel):
+    """
+    Record of an Escrow transaction in the Agent labor market.
+    
+    Implements the Escrow-Verify-Release protocol:
+    1. Customer locks funds in escrow
+    2. Merchant performs work
+    3. Verifier validates output
+    4. Funds released or refunded based on verification
+    """
+    escrow_id: str = Field(..., description="Unique escrow identifier")
+    task_id: str = Field(..., description="Associated task ID")
+    
+    # Participants
+    customer_agent: str = Field(..., description="Agent paying for service")
+    merchant_agent: str = Field(..., description="Agent providing service")
+    verifier_agent: Optional[str] = Field(None, description="Agent verifying output")
+    
+    # Financial
+    amount: float = Field(..., description="Locked amount in MNEE")
+    fee: float = Field(0.0, description="Platform/verification fee")
+    
+    # State
+    status: str = Field("created", description="Current escrow status")
+    
+    # Timestamps
+    created_at: Optional[str] = None
+    submitted_at: Optional[str] = None
+    verified_at: Optional[str] = None
+    released_at: Optional[str] = None
+    
+    # Work evidence
+    work_ipfs_cid: Optional[str] = Field(None, description="IPFS CID of submitted work")
+    requirement_hash: Optional[str] = Field(None, description="Hash of task requirements")
+    
+    # Verification
+    verification_score: float = Field(0.0, description="Verification score (0-1)")
+    verification_passed: bool = Field(False, description="Whether verification passed")
+    
+    # On-chain references
+    lock_tx_hash: Optional[str] = Field(None, description="TX hash of fund locking")
+    release_tx_hash: Optional[str] = Field(None, description="TX hash of fund release")
+    
+    # Dispute
+    dispute_reason: Optional[str] = None
+    dispute_resolution: Optional[str] = None
+
+
 class StepRecord(BaseModel):
     step_id: str
     description: Optional[str] = None
@@ -34,6 +102,13 @@ class StepRecord(BaseModel):
     risk_level: Optional[Literal["RISK_OK", "RISK_REVIEW", "RISK_BLOCK"]] = None
     error: Optional[str] = None
     status: Literal["pending", "executing", "success", "failed", "denied"] = "pending"
+    
+    # A2A payment info (if this step was delegated)
+    a2a_payment: Optional[A2APaymentRecord] = None
+    
+    # Escrow info (for trustless transactions)
+    escrow_id: Optional[str] = None
+    escrow_status: Optional[str] = None
 
     params: Dict[str, Any] = Field(default_factory=dict, description="Tool parameters")
 
@@ -50,7 +125,7 @@ class GraphState(BaseModel):
     goal: str = Field(..., description="User's original request/goal")
 
     # Agent routing
-    active_agent: Literal["user-agent", "batch-agent", "ops-agent", "merchant-agent", "customer-agent", "startup-designer", "startup-analyst", "startup-archivist"] = Field(
+    active_agent: Literal["user-agent", "startup-designer", "startup-analyst", "startup-archivist"] = Field(
         "user-agent", description="Currently active agent"
     )
 
@@ -71,6 +146,18 @@ class GraphState(BaseModel):
     steps: List[StepRecord] = Field(
         default_factory=list,
         description="Complete history"
+    )
+    
+    # A2A payment records
+    a2a_transfers: List[A2APaymentRecord] = Field(
+        default_factory=list,
+        description="All A2A payments made during this task"
+    )
+    
+    # Escrow records for trustless transactions
+    escrow_records: List[EscrowRecord] = Field(
+        default_factory=list,
+        description="All escrow transactions in this task"
     )
 
     # Final output

@@ -65,8 +65,12 @@ def policy_feedback_node(state: GraphState) -> GraphState:
 
         feedback_lines.append("")
 
-    # Check budget status
-    total_spent = sum(s.amount_mnee for s in state.steps if s.amount_mnee and s.status == "success")
+    # Check budget status - extract from output dict
+    def get_step_amount(s):
+        if s.output and isinstance(s.output, dict):
+            return s.output.get('amount_mnee', 0) or 0
+        return 0
+    total_spent = sum(get_step_amount(s) for s in state.steps if s.status == "success")
     if total_spent > 0:
         feedback_lines.append(f"Total spent this session: {total_spent:.2f} MNEE")
 

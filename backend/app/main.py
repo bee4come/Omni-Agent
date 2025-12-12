@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from agents.omni_agent import OmniAgent
 from agents.merchant_agent import router as merchant_router
+from payment.a2a_client import get_a2a_client
 import os
 from dotenv import load_dotenv
 
@@ -56,6 +57,8 @@ def chat(request: ChatRequest):
             "response": result['output'],
             "agent_id": request.agent_id,
             "steps": result.get('steps', []),
+            "a2a_transfers": result.get('a2a_transfers', []),
+            "escrow_records": result.get('escrow_records', []),
             "guardian": {
                 "reasoning": result.get("guardian_reasoning"),
                 "risk_score": result.get("guardian_risk_score"),
@@ -229,6 +232,184 @@ def reset_daily_budgets():
     return {
         "message": "All agents' daily spending has been reset to 0"
     }
+
+# ============================================================
+# A2A (Agent-to-Agent) Payment Endpoints
+# ============================================================
+
+class A2APaymentRequest(BaseModel):
+    from_agent: str
+    to_agent: str
+    amount: float
+    task_description: str
+
+@app.post("/a2a/pay")
+def execute_a2a_payment(request: A2APaymentRequest):
+    """
+    Execute an Agent-to-Agent payment on-chain.
+    
+    This creates a real MNEE transfer between agent wallets.
+    """
+    a2a_client = get_a2a_client()
+    result = a2a_client.execute_a2a_payment(
+        from_agent=request.from_agent,
+        to_agent=request.to_agent,
+        amount=request.amount,
+        task_description=request.task_description
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Payment failed"))
+    
+    return result
+
+@app.get("/a2a/transfers")
+def get_a2a_transfers(count: int = 20):
+    """Get recent A2A transfers for visualization"""
+    a2a_client = get_a2a_client()
+    return {
+        "transfers": a2a_client.get_recent_transfers(count),
+        "total_count": a2a_client.get_transfer_count()
+    }
+
+@app.get("/a2a/balances")
+def get_agent_wallet_balances():
+    """Get all agent wallet balances from the smart contract"""
+    a2a_client = get_a2a_client()
+    balances = a2a_client.get_all_agent_balances()
+    
+    return {
+        "balances": balances,
+        "total": sum(balances.values())
+    }
+
+@app.get("/a2a/agent/{agent_id}")
+def get_agent_wallet_info(agent_id: str):
+    """Get detailed info about an agent's wallet"""
+    a2a_client = get_a2a_client()
+    info = a2a_client.get_agent_info(agent_id)
+    
+    if not info.get("registered"):
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found in wallet")
+    
+    return info
+
+# ============================================================
+# Agent Registry Endpoints (Decentralized Labor Market)
+# ============================================================
+
+from agents.registry import get_registry, AgentCard
+
+@app.get("/registry/agents")
+def list_registered_agents():
+    """List all agents in the registry with their capabilities and pricing"""
+    registry = get_registry()
+    agents = registry.get_all_agents()
+    return {
+        "agents": [a.model_dump() for a in agents],
+        "market_stats": registry.get_market_stats()
+    }
+
+@app.get("/registry/agent/{agent_id}")
+def get_agent_card(agent_id: str):
+    """Get a specific agent's card with capabilities and reputation"""
+    registry = get_registry()
+    agent = registry.get(agent_id)
+    
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found in registry")
+    
+    return agent.model_dump()
+
+@app.get("/registry/find")
+def find_agents_by_capability(capability: str):
+    """Find agents that can handle a specific capability"""
+    registry = get_registry()
+    agents = registry.find_by_capability(capability)
+    return {
+        "capability": capability,
+        "agents": [a.model_dump() for a in agents],
+        "count": len(agents)
+    }
+
+@app.get("/registry/select")
+def select_best_agent(capability: str, price_weight: float = 0.4, reputation_weight: float = 0.4):
+    """Select the best agent for a capability based on weighted scoring"""
+    registry = get_registry()
+    success_weight = 1.0 - price_weight - reputation_weight
+    
+    agent = registry.select_best_agent(
+        capability=capability,
+        price_weight=price_weight,
+        reputation_weight=reputation_weight,
+        success_weight=success_weight
+    )
+    
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"No agents found for capability: {capability}")
+    
+    return {
+        "selected_agent": agent.model_dump(),
+        "selection_criteria": {
+            "capability": capability,
+            "price_weight": price_weight,
+            "reputation_weight": reputation_weight,
+            "success_weight": success_weight
+        }
+    }
+
+# ============================================================
+# Escrow Endpoints (Trustless Transactions)
+# ============================================================
+
+from agents.nodes.escrow import get_escrow_manager
+
+@app.get("/escrow/list")
+def list_escrows():
+    """List all escrow transactions"""
+    escrow_manager = get_escrow_manager()
+    escrows = list(escrow_manager.escrows.values())
+    
+    return {
+        "escrows": [e.model_dump() for e in escrows],
+        "total_count": len(escrows),
+        "by_status": {
+            "created": len([e for e in escrows if e.status == "created"]),
+            "submitted": len([e for e in escrows if e.status == "submitted"]),
+            "verifying": len([e for e in escrows if e.status == "verifying"]),
+            "released": len([e for e in escrows if e.status == "released"]),
+            "refunded": len([e for e in escrows if e.status == "refunded"]),
+            "disputed": len([e for e in escrows if e.status == "disputed"]),
+        }
+    }
+
+@app.get("/escrow/{escrow_id}")
+def get_escrow(escrow_id: str):
+    """Get details of a specific escrow"""
+    escrow_manager = get_escrow_manager()
+    escrow = escrow_manager.get_escrow(escrow_id)
+    
+    if not escrow:
+        raise HTTPException(status_code=404, detail=f"Escrow {escrow_id} not found")
+    
+    return escrow.model_dump()
+
+class DisputeRequest(BaseModel):
+    reason: str
+
+@app.post("/escrow/{escrow_id}/dispute")
+def raise_escrow_dispute(escrow_id: str, request: DisputeRequest):
+    """Raise a dispute for an escrow transaction"""
+    escrow_manager = get_escrow_manager()
+    
+    try:
+        escrow = escrow_manager.raise_dispute(escrow_id, request.reason)
+        return {
+            "message": "Dispute raised successfully",
+            "escrow": escrow.model_dump()
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

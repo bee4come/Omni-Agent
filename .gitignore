@@ -131,6 +131,9 @@ docker-compose.override.yml
 !.vscode/extensions.json
 !.vscode/settings.json.example
 
+# Windsurf
+.windsurf/
+
 # IntelliJ / PyCharm
 .idea/
 *.iml

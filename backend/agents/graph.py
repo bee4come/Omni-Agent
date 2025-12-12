@@ -26,10 +26,13 @@ from .nodes import (
     policy_feedback_node,
     summarizer_node
 )
-from .nodes.guardian import init_guardian, GuardianService
+from .nodes.verifier import verifier_node, get_verifier
+from .nodes.escrow import escrow_lock_node, escrow_release_node, get_escrow_manager
+from .registry import get_registry
 
 from payment.wrapper import PaidToolWrapper
 from payment.client import PaymentClient
+from payment.a2a_client import get_a2a_client
 from policy.engine import PolicyEngine
 from policy.logger import SystemLogger
 
@@ -64,71 +67,75 @@ def build_omni_agent_graph() -> StateGraph:
         logger=logger
     )
 
-    # Initialize Guardian
-    guardian = init_guardian(policy_engine)
+    # Initialize A2A client for agent-to-agent payments
+    a2a_client = get_a2a_client()
+    
+    # Initialize Escrow Manager for trustless transactions
+    escrow_manager = get_escrow_manager(a2a_client)
+    
+    # Initialize Verifier for task output verification
+    verifier = get_verifier()
+    
+    # Initialize Agent Registry for dynamic discovery
+    registry = get_registry()
 
     # Create workflow
     workflow = StateGraph(GraphState)
 
-    # Register nodes
+    # Register nodes - Escrow-Verify-Release protocol
     workflow.add_node("planner", planner_node)
     workflow.add_node("guardian", lambda state: guardian_node(state))
-    workflow.add_node("executor", lambda state: executor_node(state, paid_wrapper))
+    workflow.add_node("escrow_lock", lambda state: escrow_lock_node(state, escrow_manager))
+    workflow.add_node("executor", lambda state: executor_node(state, paid_wrapper, policy_engine, a2a_client))
+    workflow.add_node("verifier", lambda state: verifier_node(state, verifier))
+    workflow.add_node("escrow_release", lambda state: escrow_release_node(state, escrow_manager))
     workflow.add_node("feedback", policy_feedback_node)
     workflow.add_node("summarizer", summarizer_node)
 
     # Set entry point
     workflow.set_entry_point("planner")
 
-    # Define flow: Planner -> Guardian -> Executor
+    # Define flow: Planner -> Guardian -> EscrowLock -> Executor -> Verifier -> EscrowRelease
     workflow.add_edge("planner", "guardian")
 
-    # Guardian -> Executor or skip to next step
+    # Guardian -> EscrowLock or skip to feedback
     def after_guardian(state: GraphState) -> str:
-        # If Guardian blocked, skip to next step or end
         if state.guardian_block:
-            # Check if more steps remaining
-            if state.current_step_index < len(state.plan) - 1:
-                return "guardian"  # Loop back to check next step
-            else:
-                return "feedback"  # Done with all steps
-
-        # Otherwise proceed to executor
-        return "executor"
+            return "feedback"
+        return "escrow_lock"
 
     workflow.add_conditional_edges(
         "guardian",
         after_guardian,
         {
-            "executor": "executor",
-            "guardian": "guardian",
+            "escrow_lock": "escrow_lock",
             "feedback": "feedback"
         }
     )
 
-    # Executor -> Check if more steps or done
+    # EscrowLock -> Executor
+    workflow.add_edge("escrow_lock", "executor")
+
+    # Executor -> Verifier or Feedback (if early exit)
     def after_executor(state: GraphState) -> str:
-        # Check for early exit flag
         if state.early_exit:
             return "feedback"
-
-        # Check if more steps remaining
-        if state.current_step_index < len(state.plan):
-            return "guardian"  # Loop back to Guardian for next step
-
-        # All steps completed
-        return "feedback"
+        return "verifier"
 
     workflow.add_conditional_edges(
         "executor",
         after_executor,
         {
-            "guardian": "guardian",
+            "verifier": "verifier",
             "feedback": "feedback"
         }
     )
 
-    # Feedback -> Summarizer -> END
+    # Verifier -> EscrowRelease
+    workflow.add_edge("verifier", "escrow_release")
+
+    # EscrowRelease -> Feedback -> Summarizer -> END
+    workflow.add_edge("escrow_release", "feedback")
     workflow.add_edge("feedback", "summarizer")
     workflow.add_edge("summarizer", END)
 
@@ -201,7 +208,9 @@ class OmniAgentGraph:
                 "messages": final_state.messages,
                 "task_id": task_id,
                 "agent_id": agent_id,
-                "success": len([s for s in final_state.steps if s.status == 'success']) > 0
+                "success": len([s for s in final_state.steps if s.status == 'success']) > 0,
+                "a2a_transfers": [t.model_dump() for t in final_state.a2a_transfers],
+                "escrow_records": [e.model_dump() for e in final_state.escrow_records]
             }
 
         except Exception as e:

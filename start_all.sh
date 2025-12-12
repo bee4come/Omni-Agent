@@ -135,6 +135,7 @@ deploy_contracts() {
         local mnee_addr=$(jq -r '.contracts.mneeToken' contracts/deployments.json)
         local registry_addr=$(jq -r '.contracts.serviceRegistry' contracts/deployments.json)
         local router_addr=$(jq -r '.contracts.paymentRouter' contracts/deployments.json)
+        local wallet_addr=$(jq -r '.contracts.agentWallet // empty' contracts/deployments.json)
         
         if [ -f "backend/.env" ]; then
             # Use a temporary file for sed to avoid issues on some systems
@@ -143,10 +144,20 @@ deploy_contracts() {
                 -e "s|PAYMENT_ROUTER_ADDRESS=.*|PAYMENT_ROUTER_ADDRESS=$router_addr|" \
                 backend/.env > backend/.env.tmp && mv backend/.env.tmp backend/.env
             
+            # Add AGENT_WALLET_ADDRESS if it exists
+            if [ -n "$wallet_addr" ]; then
+                if grep -q "AGENT_WALLET_ADDRESS" backend/.env; then
+                    sed -i "s|AGENT_WALLET_ADDRESS=.*|AGENT_WALLET_ADDRESS=$wallet_addr|" backend/.env
+                else
+                    echo "AGENT_WALLET_ADDRESS=$wallet_addr" >> backend/.env
+                fi
+            fi
+            
             print_success "Updated backend/.env with:"
             echo "  MNEE: $mnee_addr"
             echo "  Registry: $registry_addr"
             echo "  Router: $router_addr"
+            [ -n "$wallet_addr" ] && echo "  AgentWallet: $wallet_addr"
         else
             print_error "backend/.env not found!"
         fi

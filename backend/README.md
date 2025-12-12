@@ -10,10 +10,22 @@ backend/
 │   └── main.py              # FastAPI application with all REST endpoints
 ├── agents/
 │   ├── omni_agent.py        # Main agent orchestrator
+│   ├── graph.py             # LangGraph workflow definition
+│   ├── registry.py          # AgentCard + AgentRegistry for dynamic discovery
+│   ├── state.py             # GraphState, StepRecord, EscrowRecord, A2APaymentRecord
+│   ├── nodes/
+│   │   ├── planner.py       # Task decomposition with agent delegation
+│   │   ├── guardian.py      # Policy pre-flight check
+│   │   ├── escrow.py        # Escrow lock/release for trustless transactions
+│   │   ├── executor.py      # Tool execution with A2A payments
+│   │   ├── verifier.py      # Three-layer verification (Local/AI/Oracle)
+│   │   ├── summarizer.py    # Result summarization
+│   │   └── feedback.py      # Policy feedback
 │   └── tools/
 │       └── definitions.py    # Tool definitions (ImageGen, PriceOracle, etc.)
 ├── payment/
-│   ├── client.py            # Web3 payment client
+│   ├── client.py            # Web3 payment client (Service Provider payments)
+│   ├── a2a_client.py        # A2A payment client (Agent-to-Agent payments)
 │   └── wrapper.py           # PaidToolWrapper - enforces policy + payment
 ├── policy/
 │   ├── engine.py            # Policy engine - budget & priority checks
@@ -22,6 +34,84 @@ backend/
 ├── .env.example             # Example configuration template
 └── requirements.txt         # Python dependencies
 ```
+
+## A2A (Agent-to-Agent) Payment Flow
+
+When a task requires multiple agents to collaborate, real MNEE transfers occur on-chain:
+
+```
+User Command: "Analyze competitor pricing and generate report"
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│  user-agent (CEO)                                       │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │ Delegates to startup-analyst                     │   │
+│  │ A2A Payment: 0.01 MNEE ─────────────────────────┼───┼─→ TX: 0xabc...
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│  startup-analyst                                        │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │ Calls price_oracle service                       │   │
+│  │ Service Payment: 0.05 MNEE ─────────────────────┼───┼─→ TX: 0xdef...
+│  └─────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │ Calls batch_compute service                      │   │
+│  │ Service Payment: 3.0 MNEE ──────────────────────┼───┼─→ TX: 0x123...
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
+
+All payments are:
+- **Real on-chain MNEE transfers**
+- **Verifiable on Etherscan**
+- **Recorded in transaction history**
+
+## Escrow-Verify-Release Protocol
+
+The decentralized Agent labor market uses trustless escrow for all transactions:
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                     ESCROW-VERIFY-RELEASE FLOW                           │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Planner ─→ Guardian ─→ EscrowLock ─→ Executor ─→ Verifier ─→ EscrowRelease
+│                              │                        │              │
+│                              │                        │              │
+│                              ▼                        ▼              ▼
+│                         Lock MNEE              Verify Output    Release/Refund
+│                         in Escrow              (3-Layer)        based on result
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+Three-Layer Verification:
+├── Layer 1: Local Optimistic (95% of cases) - Fast, cheap heuristics
+├── Layer 2: AI Network (4% of cases) - Autonolas Mech consensus
+└── Layer 3: Oracle Arbitration (1% of cases) - UMA DVM human voting
+```
+
+## Agent Registry & Discovery
+
+Agents advertise capabilities and pricing via `AgentCard`:
+
+```python
+AgentCard(
+    agent_id="startup-designer",
+    capabilities=["image_gen", "logo_creation", "banner_design"],
+    pricing={"image_gen": 1.0, "logo_creation": 3.0},
+    reputation_score=4.5,
+    success_rate=0.92
+)
+```
+
+Selection algorithm balances:
+- **Price**: Lower is better
+- **Reputation**: Higher rating preferred
+- **Success Rate**: Historical reliability
 
 ## Quick Start
 
@@ -218,6 +308,174 @@ Get overall system statistics.
 
 #### `POST /reset`
 Reset all agents' daily spending to 0 (simulates a new day).
+
+---
+
+### A2A (Agent-to-Agent) Payments
+
+Real on-chain MNEE transfers between AI agents.
+
+#### `POST /a2a/pay`
+Execute an Agent-to-Agent payment on-chain.
+
+**Request:**
+```json
+{
+  "from_agent": "user-agent",
+  "to_agent": "startup-analyst",
+  "amount": 0.5,
+  "task_description": "Analyze market data"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "tx_hash": "0x...",
+  "transfer_id": 1,
+  "from_agent": "user-agent",
+  "to_agent": "startup-analyst",
+  "amount": 0.5
+}
+```
+
+#### `GET /a2a/transfers?count=20`
+Get recent A2A transfers for visualization.
+
+**Response:**
+```json
+{
+  "transfers": [
+    {
+      "transfer_id": 1,
+      "from_agent": "user-agent",
+      "to_agent": "startup-analyst",
+      "amount": 0.5,
+      "task_description": "Analyze market data",
+      "tx_hash": "0x...",
+      "timestamp": "2024-11-26T10:30:00"
+    }
+  ],
+  "total_count": 10
+}
+```
+
+#### `GET /a2a/balances`
+Get all agent wallet balances from the smart contract.
+
+**Response:**
+```json
+{
+  "balances": {
+    "user-agent": 99.5,
+    "startup-designer": 100.0,
+    "startup-analyst": 100.5,
+    "startup-archivist": 100.0
+  },
+  "total": 400.0
+}
+```
+
+#### `GET /a2a/agent/{agent_id}`
+Get detailed info about an agent's wallet.
+
+**Response:**
+```json
+{
+  "registered": true,
+  "name": "Primary User Agent",
+  "balance": 99.5,
+  "total_received": 100.0,
+  "total_spent": 0.5
+}
+```
+
+---
+
+### Agent Registry (Decentralized Labor Market)
+
+#### `GET /registry/agents`
+List all registered agents with capabilities and pricing.
+
+**Response:**
+```json
+{
+  "agents": [
+    {
+      "agent_id": "startup-designer",
+      "name": "Designer Agent",
+      "capabilities": ["image_gen", "logo_creation", "banner_design"],
+      "pricing": {"image_gen": 1.0, "logo_creation": 3.0},
+      "reputation_score": 4.5,
+      "success_rate": 0.92,
+      "total_tasks_completed": 150
+    }
+  ],
+  "market_stats": {
+    "total_agents": 6,
+    "available_agents": 6,
+    "total_tasks_completed": 970,
+    "avg_success_rate": 0.95
+  }
+}
+```
+
+#### `GET /registry/find?capability=image_gen`
+Find agents that can handle a specific capability.
+
+#### `GET /registry/select?capability=image_gen&price_weight=0.4&reputation_weight=0.4`
+Select the best agent using weighted scoring algorithm.
+
+---
+
+### Escrow (Trustless Transactions)
+
+#### `GET /escrow/list`
+List all escrow transactions.
+
+**Response:**
+```json
+{
+  "escrows": [
+    {
+      "escrow_id": "ESC-a1b2c3d4",
+      "task_id": "TASK-001",
+      "customer_agent": "user-agent",
+      "merchant_agent": "startup-designer",
+      "amount": 1.5,
+      "status": "released",
+      "verification_score": 0.92,
+      "verification_passed": true,
+      "lock_tx_hash": "0x...",
+      "release_tx_hash": "0x..."
+    }
+  ],
+  "by_status": {
+    "created": 1,
+    "submitted": 0,
+    "verifying": 1,
+    "released": 5,
+    "refunded": 0,
+    "disputed": 0
+  }
+}
+```
+
+#### `GET /escrow/{escrow_id}`
+Get details of a specific escrow.
+
+#### `POST /escrow/{escrow_id}/dispute`
+Raise a dispute for an escrow transaction.
+
+**Request:**
+```json
+{
+  "reason": "Output does not match requirements"
+}
+```
+
+---
 
 ## Configuration
 

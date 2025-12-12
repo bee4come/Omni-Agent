@@ -34,9 +34,17 @@ Your job is to delegate the user's goal to your specialized employee agents.
    - Role: General purpose / Fallback
    - Tools: All tools (but prefer specialists when possible).
 
+**Available Tools and EXACT Parameters:**
+- `image_gen`: params={{"prompt": "<description of image>"}}
+- `price_oracle`: params={{"symbol": "ETH" or "BTC" or other crypto symbol}}
+- `batch_compute`: params={{"payload": "<data to process>"}}
+- `log_archive`: params={{"content": "<log content>"}}
+- `respond`: params={{"message": "<response text>"}}
+
 **Instructions:**
 - Break the User Goal into specific steps.
 - **ASSIGN THE CORRECT `agent_id`** for each step based on the roles above.
+- **USE EXACT PARAMETER NAMES** as shown above. Do NOT invent new parameter names.
 - Set `max_mnee_cost` appropriately.
 - Output ONLY JSON matching the `Plan` schema.
 
@@ -69,11 +77,11 @@ def _keyword_plan(state: GraphState) -> List[PlanStep]:
     steps = []
 
     # Pattern 1: Image Generation -> Designer
-    if any(word in goal_lower for word in ['image', 'generate', 'picture', 'avatar', 'logo']):
+    if any(word in goal_lower for word in ['image', 'picture', 'avatar', 'logo', 'artwork', 'marketing image']):
         steps.append(PlanStep(
             step_id="step_1_design",
             description="Generate requested artwork",
-            agent_id="startup-designer",  # ASSIGN TO DESIGNER
+            agent_id="startup-designer",
             service_id="IMAGE_GEN_PREMIUM",
             tool_name="image_gen",
             estimated_quantity=1,
@@ -81,20 +89,59 @@ def _keyword_plan(state: GraphState) -> List[PlanStep]:
             params={"prompt": state.goal}
         ))
 
-    # Pattern 2: Price/Finance -> Analyst
-    elif any(word in goal_lower for word in ['price', 'eth', 'mnee', 'cost', 'value']):
+    # Pattern 2: Price/Market Analysis -> Analyst (price_oracle + batch_compute)
+    elif any(word in goal_lower for word in ['price', 'pricing', 'competitor', 'market', 'analyze', 'analysis', 'report']):
         symbol = "ETH"
         if "btc" in goal_lower: symbol = "BTC"
         
+        # Step 1: Get price data
         steps.append(PlanStep(
-            step_id="step_1_analysis",
-            description=f"Check {symbol} price",
-            agent_id="startup-analyst", # ASSIGN TO ANALYST
+            step_id="step_1_data",
+            description=f"Gather market pricing data",
+            agent_id="startup-analyst",
             service_id="PRICE_ORACLE",
             tool_name="price_oracle",
             estimated_quantity=1,
-            max_mnee_cost=0.05,
+            max_mnee_cost=0.1,
             params={"symbol": symbol}
+        ))
+        
+        # Step 2: Process and analyze
+        steps.append(PlanStep(
+            step_id="step_2_analyze",
+            description="Analyze data and generate report",
+            agent_id="startup-analyst",
+            service_id="BATCH_COMPUTE",
+            tool_name="batch_compute",
+            estimated_quantity=1,
+            max_mnee_cost=3.0,
+            params={"payload": f"analyze: {state.goal}"}
+        ))
+
+    # Pattern 3: Batch compute only
+    elif any(word in goal_lower for word in ['batch', 'compute', 'process', 'ml', 'inference']):
+        steps.append(PlanStep(
+            step_id="step_1_compute",
+            description="Process batch computation",
+            agent_id="startup-analyst",
+            service_id="BATCH_COMPUTE",
+            tool_name="batch_compute",
+            estimated_quantity=1,
+            max_mnee_cost=3.0,
+            params={"payload": state.goal}
+        ))
+
+    # Pattern 4: Archive/Log
+    elif any(word in goal_lower for word in ['log', 'archive', 'save', 'record']):
+        steps.append(PlanStep(
+            step_id="step_1_archive",
+            description="Archive the content",
+            agent_id="startup-archivist",
+            service_id="LOG_ARCHIVE",
+            tool_name="log_archive",
+            estimated_quantity=1,
+            max_mnee_cost=0.01,
+            params={"content": state.goal}
         ))
 
     # Default Fallback
