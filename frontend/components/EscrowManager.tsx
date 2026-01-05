@@ -1,22 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Lock, 
-  Unlock, 
-  CheckCircle, 
-  XCircle, 
+import { motion, AnimatePresence } from 'framer-motion';
+import toast from 'react-hot-toast';
+import {
+  Lock,
+  Unlock,
+  CheckCircle,
+  XCircle,
   AlertTriangle,
   ArrowRight,
   ExternalLink,
   Clock,
   Shield,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  ThumbsUp,
+  ThumbsDown,
+  X,
+  MessageSquare
 } from 'lucide-react';
 import clsx from 'clsx';
+import { raiseDispute } from '../lib/api';
 
 // Escrow status types
 type EscrowStatus = 'created' | 'submitted' | 'verifying' | 'released' | 'refunded' | 'disputed';
 
+// Internal escrow record with full details (for demo/display)
 interface EscrowRecord {
   escrow_id: string;
   task_id: string;
@@ -36,8 +44,33 @@ interface EscrowRecord {
   dispute_reason?: string;
 }
 
+// Simple escrow from API (matches backend response)
+interface EscrowSimple {
+  escrow_id: string;
+  payer_agent_id: string;
+  payee_agent_id: string;
+  amount: number;
+  status: string;
+  task_description: string;
+  created_at?: string;
+}
+
+// Convert API escrow to internal format
+function convertToEscrowRecord(simple: EscrowSimple): EscrowRecord {
+  return {
+    escrow_id: simple.escrow_id,
+    task_id: simple.task_description,
+    customer_agent: simple.payer_agent_id,
+    merchant_agent: simple.payee_agent_id,
+    amount: simple.amount,
+    fee: simple.amount * 0.01,
+    status: simple.status as EscrowStatus,
+    created_at: simple.created_at,
+  };
+}
+
 interface EscrowManagerProps {
-  escrows?: EscrowRecord[];
+  escrows?: EscrowSimple[];
   onRefresh?: () => void;
 }
 
@@ -80,13 +113,48 @@ const StatusBadge = ({ status }: { status: EscrowStatus }) => {
   );
 };
 
-const EscrowCard = ({ escrow }: { escrow: EscrowRecord }) => {
+interface EscrowCardProps {
+  escrow: EscrowRecord;
+  onAction?: () => void;
+}
+
+const EscrowCard = ({ escrow, onAction }: EscrowCardProps) => {
   const [expanded, setExpanded] = useState(false);
-  
+  const [showDisputeModal, setShowDisputeModal] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const canApprove = escrow.status === 'submitted' || escrow.status === 'verifying';
+  const canDispute = escrow.status === 'created' || escrow.status === 'submitted' || escrow.status === 'verifying';
+
+  const handleApprove = async () => {
+    toast.success(`Escrow ${escrow.escrow_id} approved for release`);
+    onAction?.();
+  };
+
+  const handleDispute = async () => {
+    if (!disputeReason.trim()) {
+      toast.error('Please provide a reason for the dispute');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await raiseDispute(escrow.escrow_id, disputeReason);
+      toast.success('Dispute raised successfully');
+      setShowDisputeModal(false);
+      setDisputeReason('');
+      onAction?.();
+    } catch (e) {
+      toast.error('Failed to raise dispute');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="bg-slate-800/50 border border-slate-700 rounded-lg overflow-hidden">
       {/* Header */}
-      <div 
+      <div
         className="p-4 cursor-pointer hover:bg-slate-800/80 transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
@@ -216,8 +284,103 @@ const EscrowCard = ({ escrow }: { escrow: EscrowRecord }) => {
               <p className="text-xs text-red-300">{escrow.dispute_reason}</p>
             </div>
           )}
+
+          {/* Action Buttons */}
+          {(canApprove || canDispute) && (
+            <div className="flex gap-2 pt-3 border-t border-slate-700">
+              {canApprove && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleApprove();
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-600/30 rounded text-xs text-emerald-400 transition-colors"
+                  aria-label="Approve escrow release"
+                >
+                  <ThumbsUp className="w-3 h-3" />
+                  Approve Release
+                </button>
+              )}
+              {canDispute && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowDisputeModal(true);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/30 rounded text-xs text-red-400 transition-colors"
+                  aria-label="Raise dispute"
+                >
+                  <ThumbsDown className="w-3 h-3" />
+                  Raise Dispute
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
+
+      {/* Dispute Modal */}
+      <AnimatePresence>
+        {showDisputeModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+            onClick={() => setShowDisputeModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 border border-slate-700 rounded-lg p-6 w-full max-w-md mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-slate-200">Raise Dispute</h3>
+                <button
+                  onClick={() => setShowDisputeModal(false)}
+                  className="p-1 text-slate-400 hover:text-white"
+                  aria-label="Close modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-sm text-slate-400 mb-4">
+                Dispute escrow <span className="text-indigo-400 font-mono">{escrow.escrow_id}</span>
+              </p>
+              <div className="mb-4">
+                <label htmlFor="dispute-reason" className="block text-xs text-slate-500 uppercase font-bold mb-2">
+                  Reason for Dispute
+                </label>
+                <textarea
+                  id="dispute-reason"
+                  value={disputeReason}
+                  onChange={(e) => setDisputeReason(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-200 focus:outline-none focus:border-indigo-500 resize-none"
+                  placeholder="Describe the issue..."
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDisputeModal(false)}
+                  className="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded text-sm text-slate-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDispute}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 rounded text-sm text-white transition-colors disabled:opacity-50"
+                >
+                  {submitting ? 'Submitting...' : 'Submit Dispute'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -291,6 +454,9 @@ const EscrowPipeline = ({ escrows }: { escrows: EscrowRecord[] }) => {
 };
 
 export const EscrowManager = ({ escrows = [], onRefresh }: EscrowManagerProps) => {
+  // Convert API escrows to internal format
+  const convertedEscrows: EscrowRecord[] = escrows.map(convertToEscrowRecord);
+
   // Demo data if no escrows provided
   const [demoEscrows] = useState<EscrowRecord[]>([
     {
@@ -336,7 +502,7 @@ export const EscrowManager = ({ escrows = [], onRefresh }: EscrowManagerProps) =
     },
   ]);
   
-  const displayEscrows = escrows.length > 0 ? escrows : demoEscrows;
+  const displayEscrows = convertedEscrows.length > 0 ? convertedEscrows : demoEscrows;
   
   return (
     <div className="space-y-4">
@@ -362,7 +528,7 @@ export const EscrowManager = ({ escrows = [], onRefresh }: EscrowManagerProps) =
       {/* Escrow List */}
       <div className="space-y-3">
         {displayEscrows.map(escrow => (
-          <EscrowCard key={escrow.escrow_id} escrow={escrow} />
+          <EscrowCard key={escrow.escrow_id} escrow={escrow} onAction={onRefresh} />
         ))}
         
         {displayEscrows.length === 0 && (

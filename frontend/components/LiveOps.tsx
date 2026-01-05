@@ -6,10 +6,17 @@ import clsx from 'clsx';
 
 // Demo scenarios that trigger A2A payments
 const DEMO_SCENARIOS = [
-  { label: 'Market Analysis', cmd: 'Analyze competitor pricing and generate report' },
-  { label: 'Image Generation', cmd: 'Generate 3 marketing images for product launch' },
-  { label: 'Batch Compute', cmd: 'Process ML inference on dataset batch-001' },
-  { label: 'Multi-Agent Task', cmd: 'Collect market data, analyze trends, and create visual report' },
+  { label: 'Market Analysis', cmd: 'Analyze competitor pricing and generate report', type: 'normal' },
+  { label: 'Image Generation', cmd: 'Generate 3 marketing images for product launch', type: 'normal' },
+  { label: 'Batch Compute', cmd: 'Process ML inference on dataset batch-001', type: 'normal' },
+  { label: 'Multi-Agent Task', cmd: 'Collect market data, analyze trends, and create visual report', type: 'normal' },
+];
+
+// Failure scenarios for demo
+const FAILURE_SCENARIOS = [
+  { label: 'Budget Exhaustion', cmd: 'Run 100 premium image generation tasks', type: 'failure', description: 'Exceeds daily budget limit' },
+  { label: 'Per-Call Limit', cmd: 'Execute batch compute job worth 50 MNEE', type: 'failure', description: 'Exceeds max per-call limit' },
+  { label: 'Service Blocked', cmd: 'Access restricted premium analytics service', type: 'failure', description: 'Service not in agent whitelist' },
 ];
 
 interface LiveOpsProps {
@@ -138,9 +145,9 @@ export const LiveOps = ({ onAction }: LiveOpsProps) => {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[600px]">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 min-h-[400px] lg:h-[600px]">
       {/* Left: Terminal */}
-      <div className="lg:col-span-2 flex flex-col bg-slate-950 border border-slate-800 rounded overflow-hidden font-mono text-sm">
+      <div className="lg:col-span-2 flex flex-col bg-slate-950 border border-slate-800 rounded overflow-hidden font-mono text-sm h-[350px] lg:h-auto">
         <div className="bg-slate-900 p-2 px-4 border-b border-slate-800 flex justify-between items-center">
           <div className="flex gap-2">
             <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500" />
@@ -225,9 +232,9 @@ export const LiveOps = ({ onAction }: LiveOpsProps) => {
         </div>
 
         {/* Demo Scenarios */}
-        <div className="px-4 py-2 bg-slate-900/50 border-t border-slate-800 flex gap-2 overflow-x-auto">
-          <span className="text-[10px] text-slate-500 uppercase font-bold flex items-center gap-1 mr-2">
-            <Sparkles className="w-3 h-3" /> Demo:
+        <div className="px-3 lg:px-4 py-2 bg-slate-900/50 border-t border-slate-800 flex flex-wrap gap-1.5 lg:gap-2 overflow-x-auto">
+          <span className="text-[10px] text-slate-500 uppercase font-bold flex items-center gap-1 mr-1 lg:mr-2">
+            <Sparkles className="w-3 h-3" /> <span className="hidden sm:inline">Demo:</span>
           </span>
           {DEMO_SCENARIOS.map((scenario, i) => (
             <button
@@ -240,23 +247,47 @@ export const LiveOps = ({ onAction }: LiveOpsProps) => {
               {scenario.label}
             </button>
           ))}
+
+          <span className="text-[10px] text-red-500/70 uppercase font-bold flex items-center gap-1 ml-2 lg:ml-4 mr-1 lg:mr-2">
+            <XCircle className="w-3 h-3" /> <span className="hidden sm:inline">Failure:</span>
+          </span>
+          {FAILURE_SCENARIOS.map((scenario, i) => (
+            <button
+              key={`fail-${i}`}
+              onClick={() => {
+                setInput(scenario.cmd);
+              }}
+              title={scenario.description}
+              className="px-2 py-1 bg-red-900/30 hover:bg-red-900/50 border border-red-800/50 rounded text-[10px] text-red-400 hover:text-red-300 transition-colors whitespace-nowrap"
+            >
+              {scenario.label}
+            </button>
+          ))}
         </div>
 
-        <div className="p-4 bg-slate-900 border-t border-slate-800 flex gap-2">
-          <span className="text-emerald-500 font-bold">{'>'}</span>
-          <input 
-            className="flex-1 bg-transparent focus:outline-none text-slate-200"
+        <div className="p-4 bg-slate-900 border-t border-slate-800 flex gap-2 items-center">
+          {activeTask.status !== 'idle' && activeTask.status !== 'finished' ? (
+            <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />
+          ) : (
+            <span className="text-emerald-500 font-bold">{'>'}</span>
+          )}
+          <input
+            className="flex-1 bg-transparent focus:outline-none text-slate-200 disabled:opacity-50"
             autoFocus
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSend()}
-            placeholder="Enter command..."
+            placeholder={activeTask.status !== 'idle' && activeTask.status !== 'finished' ? 'Processing...' : 'Enter command...'}
+            disabled={activeTask.status !== 'idle' && activeTask.status !== 'finished'}
           />
+          {activeTask.status !== 'idle' && activeTask.status !== 'finished' && (
+            <span className="text-xs text-slate-500 uppercase">Running</span>
+          )}
         </div>
       </div>
 
       {/* Right: Process Monitor */}
-      <div className="bg-slate-900 border border-slate-800 rounded p-6 space-y-6">
+      <div className="bg-slate-900 border border-slate-800 rounded p-4 lg:p-6 space-y-4 lg:space-y-6 h-[300px] lg:h-auto overflow-y-auto">
         <div className="uppercase tracking-wider text-xs font-bold text-slate-500 mb-4">System Monitor</div>
         
         {/* Status Steps */}

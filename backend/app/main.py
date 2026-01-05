@@ -1,13 +1,65 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Set
 from agents.omni_agent import OmniAgent
 from agents.merchant_agent import router as merchant_router
 from payment.a2a_client import get_a2a_client
 import os
+import json
+import asyncio
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+# ============================================================
+# WebSocket Connection Manager
+# ============================================================
+
+class ConnectionManager:
+    """Manages WebSocket connections for real-time updates."""
+
+    def __init__(self):
+        self.active_connections: Set[WebSocket] = set()
+        self._broadcast_task: Optional[asyncio.Task] = None
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.add(websocket)
+        print(f"[WS] Client connected. Total: {len(self.active_connections)}")
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.discard(websocket)
+        print(f"[WS] Client disconnected. Total: {len(self.active_connections)}")
+
+    async def broadcast(self, message: dict):
+        """Send message to all connected clients."""
+        if not self.active_connections:
+            return
+
+        message_json = json.dumps(message)
+        disconnected = set()
+
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message_json)
+            except Exception:
+                disconnected.add(connection)
+
+        # Clean up disconnected clients
+        for conn in disconnected:
+            self.active_connections.discard(conn)
+
+    async def send_personal(self, websocket: WebSocket, message: dict):
+        """Send message to a specific client."""
+        try:
+            await websocket.send_text(json.dumps(message))
+        except Exception:
+            self.active_connections.discard(websocket)
+
+
+ws_manager = ConnectionManager()
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -100,7 +152,8 @@ def get_all_agents():
                 "priority": agent.priority,
                 "dailyBudget": agent.dailyBudget,
                 "maxPerCall": agent.maxPerCall,
-                "currentDailySpend": agent.currentDailySpend
+                "currentDailySpend": agent.currentDailySpend,
+                "paused": agent.paused
             }
             for agent in omni_agent.policy_engine.agents.values()
         ]
@@ -112,7 +165,7 @@ def get_agent(agent_id: str):
     agent = omni_agent.policy_engine.agents.get(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
-    
+
     return {
         "id": agent.id,
         "priority": agent.priority,
@@ -120,9 +173,14 @@ def get_agent(agent_id: str):
         "maxPerCall": agent.maxPerCall,
         "currentDailySpend": agent.currentDailySpend,
         "remainingBudget": agent.dailyBudget - agent.currentDailySpend,
+        "paused": agent.paused,
         "transactions": omni_agent.logger.get_agent_transactions(agent_id),
         "totalSpent": omni_agent.logger.get_total_spent_by_agent(agent_id)
     }
+
+# Budget validation constants
+MIN_BUDGET = 0.01
+MAX_BUDGET = 10000.0
 
 @app.put("/agents/{agent_id}/budget")
 def update_agent_budget(agent_id: str, request: BudgetUpdateRequest):
@@ -130,18 +188,76 @@ def update_agent_budget(agent_id: str, request: BudgetUpdateRequest):
     agent = omni_agent.policy_engine.agents.get(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
-    
+
+    # Validate daily_budget
+    if request.daily_budget is not None:
+        if request.daily_budget < MIN_BUDGET or request.daily_budget > MAX_BUDGET:
+            raise HTTPException(
+                status_code=400,
+                detail=f"daily_budget must be between {MIN_BUDGET} and {MAX_BUDGET} MNEE"
+            )
+
+    # Validate max_per_call
+    if request.max_per_call is not None:
+        if request.max_per_call < MIN_BUDGET or request.max_per_call > MAX_BUDGET:
+            raise HTTPException(
+                status_code=400,
+                detail=f"max_per_call must be between {MIN_BUDGET} and {MAX_BUDGET} MNEE"
+            )
+        # Ensure max_per_call does not exceed daily_budget
+        effective_daily = request.daily_budget if request.daily_budget is not None else agent.dailyBudget
+        if request.max_per_call > effective_daily:
+            raise HTTPException(
+                status_code=400,
+                detail="max_per_call cannot exceed daily_budget"
+            )
+
+    # Apply changes after validation
     if request.daily_budget is not None:
         agent.dailyBudget = request.daily_budget
     if request.max_per_call is not None:
         agent.maxPerCall = request.max_per_call
-    
+
     return {
         "message": "Budget updated successfully",
         "agent": {
             "id": agent.id,
             "dailyBudget": agent.dailyBudget,
             "maxPerCall": agent.maxPerCall
+        }
+    }
+
+@app.put("/agents/{agent_id}/pause")
+def pause_agent(agent_id: str):
+    """Pause an agent - prevents it from making any paid calls"""
+    agent = omni_agent.policy_engine.agents.get(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+
+    agent.paused = True
+
+    return {
+        "message": f"Agent {agent_id} has been paused",
+        "agent": {
+            "id": agent.id,
+            "paused": agent.paused
+        }
+    }
+
+@app.put("/agents/{agent_id}/resume")
+def resume_agent(agent_id: str):
+    """Resume a paused agent - allows it to make paid calls again"""
+    agent = omni_agent.policy_engine.agents.get(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
+
+    agent.paused = False
+
+    return {
+        "message": f"Agent {agent_id} has been resumed",
+        "agent": {
+            "id": agent.id,
+            "paused": agent.paused
         }
     }
 
@@ -401,7 +517,7 @@ class DisputeRequest(BaseModel):
 def raise_escrow_dispute(escrow_id: str, request: DisputeRequest):
     """Raise a dispute for an escrow transaction"""
     escrow_manager = get_escrow_manager()
-    
+
     try:
         escrow = escrow_manager.raise_dispute(escrow_id, request.reason)
         return {
@@ -410,6 +526,121 @@ def raise_escrow_dispute(escrow_id: str, request: DisputeRequest):
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============================================================
+# WebSocket Endpoint for Real-time Updates
+# ============================================================
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time dashboard updates.
+
+    Sends periodic updates with:
+    - Treasury status
+    - Agent statuses
+    - Recent transactions
+    - Escrow updates
+    """
+    await ws_manager.connect(websocket)
+
+    try:
+        # Send initial state
+        await send_dashboard_update(websocket)
+
+        # Start periodic updates
+        update_task = asyncio.create_task(periodic_updates(websocket))
+
+        # Listen for client messages (ping/pong, subscriptions, etc.)
+        while True:
+            try:
+                data = await websocket.receive_text()
+                message = json.loads(data)
+
+                # Handle different message types
+                if message.get("type") == "ping":
+                    await ws_manager.send_personal(websocket, {"type": "pong"})
+                elif message.get("type") == "refresh":
+                    await send_dashboard_update(websocket)
+
+            except WebSocketDisconnect:
+                break
+            except json.JSONDecodeError:
+                continue
+
+    except WebSocketDisconnect:
+        pass
+    finally:
+        update_task.cancel()
+        ws_manager.disconnect(websocket)
+
+
+async def send_dashboard_update(websocket: WebSocket):
+    """Send current dashboard state to a specific client."""
+    try:
+        # Gather all data
+        treasury_data = get_treasury_status()
+        agents_data = get_all_agents()
+        transactions_data = get_transactions(limit=20)
+        stats_data = get_statistics()
+
+        # Get escrow data
+        escrow_manager = get_escrow_manager()
+        escrows = list(escrow_manager.escrows.values())
+
+        update = {
+            "type": "dashboard_update",
+            "timestamp": datetime.now().isoformat(),
+            "data": {
+                "treasury": treasury_data,
+                "agents": agents_data.get("agents", []),
+                "transactions": transactions_data.get("transactions", []),
+                "stats": stats_data,
+                "escrows": [e.model_dump() for e in escrows[:10]]
+            }
+        }
+
+        await ws_manager.send_personal(websocket, update)
+
+    except Exception as e:
+        print(f"[WS] Error sending update: {e}")
+
+
+async def periodic_updates(websocket: WebSocket):
+    """Send periodic updates to a connected client."""
+    try:
+        while True:
+            await asyncio.sleep(3)  # Update every 3 seconds
+            await send_dashboard_update(websocket)
+    except asyncio.CancelledError:
+        pass
+
+
+async def broadcast_event(event_type: str, data: dict):
+    """
+    Broadcast an event to all connected clients.
+
+    Call this from other parts of the application when events occur:
+    - New transaction
+    - Budget update
+    - Escrow status change
+    - Policy decision
+    """
+    message = {
+        "type": "event",
+        "event_type": event_type,
+        "timestamp": datetime.now().isoformat(),
+        "data": data
+    }
+    await ws_manager.broadcast(message)
+
+
+# Export for use in other modules
+def get_ws_manager():
+    """Get the WebSocket connection manager for broadcasting events."""
+    return ws_manager
+
 
 if __name__ == "__main__":
     import uvicorn

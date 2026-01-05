@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Network, Zap, ArrowRight, ExternalLink, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
+import { fetchA2ATransfers, fetchA2ABalances, executeA2APayment } from '../lib/api';
+import { POLLING_INTERVALS } from '../lib/constants';
 
 interface A2ATransfer {
   transfer_id: number;
@@ -43,20 +45,15 @@ export const A2ANetwork = ({ className }: A2ANetworkProps) => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch transfers
-      const transferRes = await fetch('http://localhost:8000/a2a/transfers?count=20');
-      if (transferRes.ok) {
-        const data = await transferRes.json();
-        setTransfers(data.transfers || []);
-        setTotalCount(data.total_count || 0);
-      }
+      // Fetch transfers and balances using API client
+      const [transferData, balanceData] = await Promise.all([
+        fetchA2ATransfers(),
+        fetchA2ABalances()
+      ]);
 
-      // Fetch balances
-      const balanceRes = await fetch('http://localhost:8000/a2a/balances');
-      if (balanceRes.ok) {
-        const data = await balanceRes.json();
-        setBalances(data.balances || {});
-      }
+      setTransfers(transferData.transfers || []);
+      setTotalCount(transferData.total_count || 0);
+      setBalances(balanceData.balances || {});
     } catch (e) {
       console.error('Failed to fetch A2A data:', e);
     }
@@ -65,7 +62,7 @@ export const A2ANetwork = ({ className }: A2ANetworkProps) => {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 10000); // Refresh every 10s
+    const interval = setInterval(fetchData, POLLING_INTERVALS.A2A_NETWORK);
     return () => clearInterval(interval);
   }, []);
 
@@ -77,20 +74,11 @@ export const A2ANetwork = ({ className }: A2ANetworkProps) => {
         { from: 'user-agent', to: 'startup-analyst', amount: 0.5, task: 'Analyze market data' },
         { from: 'startup-analyst', to: 'startup-designer', amount: 0.3, task: 'Create visualization' },
       ];
-      
+
       for (const demo of demos) {
-        await fetch('http://localhost:8000/a2a/pay', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from_agent: demo.from,
-            to_agent: demo.to,
-            amount: demo.amount,
-            task_description: demo.task
-          })
-        });
+        await executeA2APayment(demo.from, demo.to, demo.amount, demo.task);
       }
-      
+
       await fetchData();
     } catch (e) {
       console.error('Demo failed:', e);

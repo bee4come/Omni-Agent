@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { AppShell } from '../components/AppShell';
 import { AgentFleet } from '../components/AgentFleet';
@@ -10,40 +10,76 @@ import { PolicyLogs } from '../components/PolicyLogs';
 import { BudgetAlertsContainer } from '../components/BudgetAlert';
 import { A2ANetwork } from '../components/A2ANetwork';
 import { EscrowManager } from '../components/EscrowManager';
+import { OnboardingModal, useOnboarding } from '../components/OnboardingModal';
 import { StatsCardsSkeleton, AgentCardSkeleton, TableSkeleton } from '../components/LoadingSkeleton';
-import { fetchTreasury, fetchAgents, fetchTransactions, fetchStats } from '../lib/api';
-import { AgentStatus, Transaction, Stats } from '../lib/types';
+import { fetchTreasury, fetchAgents, fetchTransactions, fetchStats, fetchEscrows, handleApiError } from '../lib/api';
+import { useWebSocket } from '../lib/useWebSocket';
+import { AgentStatus, Transaction, Stats, Treasury, EscrowSimple } from '../lib/types';
 
 export default function Home() {
   const [tab, setTab] = useState('overview');
-  const [treasury, setTreasury] = useState<any>(null);
+  const [treasury, setTreasury] = useState<Treasury | null>(null);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [escrows, setEscrows] = useState<EscrowSimple[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  
+  const { showOnboarding, completeOnboarding } = useOnboarding();
+
+  // WebSocket connection for real-time updates
+  const { data: wsData, status: wsStatus, isConnected, refresh: wsRefresh } = useWebSocket({
+    enabled: true,
+    onEvent: (eventType, data) => {
+      // Handle real-time events (e.g., new transaction, budget alert)
+      if (eventType === 'transaction') {
+        toast.success(`New transaction: ${data?.amount} MNEE`);
+      } else if (eventType === 'budget_alert') {
+        toast.error(`Budget alert: ${data?.message}`);
+      }
+    },
+  });
+
+  // Track if we've received WebSocket data
+  const hasWsData = useRef(false);
+
+  // Update state from WebSocket data
+  useEffect(() => {
+    if (wsData) {
+      hasWsData.current = true;
+      setTreasury(wsData.treasury);
+      setAgents(wsData.agents || []);
+      setTransactions(wsData.transactions || []);
+      setStats(wsData.stats);
+      setEscrows(wsData.escrows || []);
+      setLoading(false);
+    }
+  }, [wsData]);
+
+  // Fallback to polling if WebSocket is not connected
   const loadData = useCallback(async (showToast = false) => {
     try {
-      const [t, a, tx, s] = await Promise.all([
+      const [t, a, tx, s, e] = await Promise.all([
         fetchTreasury(),
         fetchAgents(),
         fetchTransactions(),
-        fetchStats()
+        fetchStats(),
+        fetchEscrows().catch(() => ({ escrows: [] }))
       ]);
-      
+
       setTreasury(t);
       setAgents(a.agents || []);
       setTransactions(tx.transactions || []);
       setStats(s);
-      
+      setEscrows(e.escrows || []);
+
       if (showToast) {
         toast.success('Data refreshed successfully');
       }
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
       if (showToast) {
-        toast.error('Failed to refresh data');
+        toast.error(handleApiError(error));
       }
     } finally {
       setLoading(false);
@@ -53,14 +89,28 @@ export default function Home() {
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    loadData(true);
-  }, [loadData]);
+    if (isConnected) {
+      wsRefresh();
+      setTimeout(() => setRefreshing(false), 500);
+    } else {
+      loadData(true);
+    }
+  }, [loadData, isConnected, wsRefresh]);
 
+  // Initial load and fallback polling when WebSocket is not connected
   useEffect(() => {
+    // Initial load via API
     loadData();
-    const interval = setInterval(() => loadData(false), 3000);
-    return () => clearInterval(interval);
-  }, [loadData]);
+
+    // Only poll if WebSocket is not connected after initial delay
+    const pollInterval = setInterval(() => {
+      if (!isConnected && !hasWsData.current) {
+        loadData(false);
+      }
+    }, 5000); // Slower polling as fallback (5s instead of 3s)
+
+    return () => clearInterval(pollInterval);
+  }, [loadData, isConnected]);
 
   // Check for budget alerts
   useEffect(() => {
@@ -74,15 +124,16 @@ export default function Home() {
     });
   }, [agents]);
 
-  const treasuryBalance = treasury?.totalAllocated - treasury?.totalSpent || 0;
+  const treasuryBalance = (treasury?.totalAllocated ?? 0) - (treasury?.totalSpent ?? 0);
 
   return (
-    <AppShell 
-      activeTab={tab} 
-      setActiveTab={setTab} 
+    <AppShell
+      activeTab={tab}
+      setActiveTab={setTab}
       treasuryBalance={treasuryBalance}
       onRefresh={handleRefresh}
       loading={refreshing}
+      connectionStatus={wsStatus}
     >
       {/* Overview Tab */}
       {tab === 'overview' && (
@@ -165,7 +216,7 @@ export default function Home() {
 
       {/* Escrow Manager Tab */}
       {tab === 'escrow' && (
-        <EscrowManager />
+        <EscrowManager escrows={escrows} onRefresh={handleRefresh} />
       )}
 
       {/* Policy Logs Tab */}
@@ -174,6 +225,11 @@ export default function Home() {
           <h2 className="text-lg font-bold text-slate-200">Policy Audit Log</h2>
           <PolicyLogs />
         </div>
+      )}
+
+      {/* Onboarding Modal for first-time users */}
+      {showOnboarding && (
+        <OnboardingModal onComplete={completeOnboarding} />
       )}
     </AppShell>
   );

@@ -150,6 +150,8 @@ class PolicyEngine:
         # 1. Basic Validation
         if not agent:
             return PolicyDecision(action="DENY", approved_quantity=0, risk_level="RISK_OK", reason=f"Agent {agent_id} unknown")
+        if agent.paused:
+            return PolicyDecision(action="DENY", approved_quantity=0, risk_level="RISK_BLOCK", reason=f"Agent {agent_id} is paused")
         if not service:
             return PolicyDecision(action="DENY", approved_quantity=0, risk_level="RISK_OK", reason=f"Service {service_id} unknown")
         if not service.active:

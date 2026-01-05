@@ -69,6 +69,11 @@ export const SpendingChart = ({ transactions, agents }: SpendingChartProps) => {
           24h Spending Trend
         </h4>
         <div className="h-64">
+          {transactions.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-slate-500 text-sm">
+              No transaction data yet
+            </div>
+          ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={hourlyData}>
               <defs>
@@ -101,16 +106,17 @@ export const SpendingChart = ({ transactions, agents }: SpendingChartProps) => {
                 labelStyle={{ color: '#94a3b8' }}
                 formatter={(value: number) => [`${value.toFixed(2)} MNEE`, 'Spent']}
               />
-              <Area 
-                type="monotone" 
-                dataKey="amount" 
-                stroke="#6366f1" 
+              <Area
+                type="monotone"
+                dataKey="amount"
+                stroke="#6366f1"
                 strokeWidth={2}
-                fillOpacity={1} 
-                fill="url(#colorSpend)" 
+                fillOpacity={1}
+                fill="url(#colorSpend)"
               />
             </AreaChart>
           </ResponsiveContainer>
+          )}
         </div>
       </div>
 

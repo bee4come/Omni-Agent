@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Shield, CheckCircle, XCircle, AlertTriangle, Filter, RefreshCw } from 'lucide-react';
 import { PolicyLog } from '../lib/types';
 import { fetchPolicyLogs } from '../lib/api';
+import { POLLING_INTERVALS } from '../lib/constants';
 import clsx from 'clsx';
 
 interface PolicyLogsProps {
@@ -29,7 +30,7 @@ export const PolicyLogs = ({ initialLogs, compact = false }: PolicyLogsProps) =>
   useEffect(() => {
     if (!initialLogs) {
       loadLogs();
-      const interval = setInterval(loadLogs, 5000);
+      const interval = setInterval(loadLogs, POLLING_INTERVALS.POLICY_LOGS);
       return () => clearInterval(interval);
     }
   }, [initialLogs]);

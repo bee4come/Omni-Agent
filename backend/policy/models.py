@@ -57,7 +57,8 @@ class AgentPolicy(BaseModel):
     daily_budget_mnee: float
     max_single_call_mnee: float
     priority: Literal["HIGH", "MEDIUM", "NORMAL", "LOW"] = "NORMAL"
-    
+    paused: bool = False  # Whether agent is temporarily paused
+
     # Runtime tracking (not persisted)
     _current_daily_spend: float = 0.0
 
