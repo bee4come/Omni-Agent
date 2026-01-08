@@ -474,6 +474,28 @@ def select_best_agent(capability: str, price_weight: float = 0.4, reputation_wei
         }
     }
 
+
+@app.get("/registry/bids")
+def get_agent_bids(capability: str, price_weight: float = 0.4, reputation_weight: float = 0.4):
+    """
+    Get all agent bids for a capability with selection reasoning.
+
+    Returns bid details for all matching agents, the winning agent,
+    and an explanation for why it was selected. Used for coordination
+    visualization in the UI.
+    """
+    registry = get_registry()
+    success_weight = 1.0 - price_weight - reputation_weight
+
+    bid_info = registry.get_agent_bids(
+        capability=capability,
+        price_weight=price_weight,
+        reputation_weight=reputation_weight,
+        success_weight=success_weight
+    )
+
+    return bid_info
+
 # ============================================================
 # Escrow Endpoints (Trustless Transactions)
 # ============================================================
@@ -526,6 +548,104 @@ def raise_escrow_dispute(escrow_id: str, request: DisputeRequest):
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============================================================
+# Workflow Endpoints (Multi-Agent Collaboration)
+# ============================================================
+
+from workflow.templates import list_templates, get_template
+from workflow.executor import get_workflow_executor, reset_workflow_executor
+from agents.nodes.escrow import get_escrow_manager
+from agents.registry import get_registry
+
+# Initialize workflow executor with real dependencies
+def _get_configured_executor():
+    """Get workflow executor configured with real integrations."""
+    return get_workflow_executor(
+        escrow_manager=get_escrow_manager(get_a2a_client()),
+        a2a_client=get_a2a_client(),
+        policy_engine=omni_agent.policy_engine if omni_agent else None,
+        agent_registry=get_registry(),
+    )
+
+class StartWorkflowRequest(BaseModel):
+    workflow_id: str
+    customer_agent: str
+    initial_input: dict = {}
+
+@app.get("/workflows/templates")
+def list_workflow_templates():
+    """List all available workflow templates"""
+    return {
+        "templates": list_templates()
+    }
+
+@app.get("/workflows/templates/{workflow_id}")
+def get_workflow_template(workflow_id: str):
+    """Get details of a specific workflow template"""
+    template = get_template(workflow_id)
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Workflow template '{workflow_id}' not found")
+
+    return {
+        "workflow_id": template.workflow_id,
+        "name": template.name,
+        "description": template.description,
+        "total_cost": template.total_cost,
+        "step_count": template.step_count,
+        "steps": [
+            {
+                "step_id": s.step_id,
+                "role": s.role,
+                "agent_id": s.agent_id,
+                "capability": s.capability,
+                "estimated_cost": s.estimated_cost,
+                "depends_on": s.depends_on,
+            }
+            for s in template.steps
+        ],
+    }
+
+@app.post("/workflows/start")
+def start_workflow(request: StartWorkflowRequest):
+    """Start a new workflow instance with real escrow and A2A integration"""
+    executor = _get_configured_executor()
+
+    try:
+        instance = executor.start_workflow(
+            workflow_id=request.workflow_id,
+            customer_agent=request.customer_agent,
+            initial_input=request.initial_input,
+        )
+        return {"instance": executor.get_instance_summary(instance.instance_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/workflows/instances")
+def list_workflow_instances(status: Optional[str] = None):
+    """List all workflow instances, optionally filtered by status"""
+    executor = _get_configured_executor()
+    instances = executor.list_instances(status=status)
+
+    return {
+        "instances": [
+            executor.get_instance_summary(i.instance_id)
+            for i in instances
+        ],
+        "total_count": len(instances),
+    }
+
+@app.get("/workflows/instances/{instance_id}")
+def get_workflow_instance(instance_id: str):
+    """Get detailed status of a workflow instance"""
+    executor = _get_configured_executor()
+    summary = executor.get_instance_summary(instance_id)
+
+    if not summary:
+        raise HTTPException(status_code=404, detail=f"Workflow instance '{instance_id}' not found")
+
+    return summary
 
 
 # ============================================================

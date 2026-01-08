@@ -10,6 +10,7 @@ import { PolicyLogs } from '../components/PolicyLogs';
 import { BudgetAlertsContainer } from '../components/BudgetAlert';
 import { A2ANetwork } from '../components/A2ANetwork';
 import { EscrowManager } from '../components/EscrowManager';
+import { WorkflowDemo } from '../components/WorkflowDemo';
 import { OnboardingModal, useOnboarding } from '../components/OnboardingModal';
 import { StatsCardsSkeleton, AgentCardSkeleton, TableSkeleton } from '../components/LoadingSkeleton';
 import { fetchTreasury, fetchAgents, fetchTransactions, fetchStats, fetchEscrows, handleApiError } from '../lib/api';
@@ -217,6 +218,11 @@ export default function Home() {
       {/* Escrow Manager Tab */}
       {tab === 'escrow' && (
         <EscrowManager escrows={escrows} onRefresh={handleRefresh} />
+      )}
+
+      {/* Workflow Tab */}
+      {tab === 'workflow' && (
+        <WorkflowDemo onWorkflowComplete={handleRefresh} />
       )}
 
       {/* Policy Logs Tab */}

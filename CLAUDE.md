@@ -1,374 +1,283 @@
+<!-- OPENSPEC:START -->
+# OpenSpec Instructions
+
+These instructions are for AI assistants working in this project.
+
+Always open `@/openspec/AGENTS.md` when the request:
+- Mentions planning or proposals (words like proposal, spec, change, plan)
+- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
+- Sounds ambiguous and you need the authoritative spec before coding
+
+Use `@/openspec/AGENTS.md` to learn:
+- How to create and apply change proposals
+- Spec format and conventions
+- Project structure and guidelines
+
+Keep this managed block so 'openspec update' can refresh the instructions.
+
+<!-- OPENSPEC:END -->
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 项目概述
+## Project Overview
 
-**MNEE Nexus / Omni-Agent** 是一个为 AI Agent 设计的可编程支付编排系统，基于 MNEE 稳定币。该系统允许多个 AI Agent 共享一个 MNEE 资金池，通过预算、策略和优先级管理，以按任务付费的方式调用不同的服务提供商。
+**MNEE Nexus / Omni-Agent** is a programmable payment orchestration system for AI Agents built on MNEE stablecoin. Multiple AI Agents share an MNEE treasury pool, with budget/policy/priority management for pay-per-task service calls.
 
-**核心特性：**
-- 基于真实 MNEE 合约 (`0x8ccedbAe4916b79da7F3F612EfB2EB93A2bFD6cF`) 的 Hardhat 主网 fork
-- 链下策略引擎强制执行预算和优先级
-- 四类服务提供商：ImageGen、PriceOracle、BatchCompute、LogArchive
-- LangChain 驱动的 Omni-Agent 协调器
+## Architecture
 
-## 架构概览
+### Core Data Flow
 
-### 四层架构
-
-1. **智能合约层** (`contracts/`)
-   - `MNEEServiceRegistry.sol` - 注册服务商、定价和状态
-   - `MNEEPaymentRouter.sol` - 处理 MNEE 支付和事件发射
-   - 使用 Hardhat fork 连接真实 MNEE 合约（零成本测试）
-
-2. **后端编排层** (`backend/`)
-   - **Guardian Service** (`guardian/service.py`) - Isolated key management (Port 8100)
-   - **Policy Engine** (`policy/engine.py`) - 强制执行预算、优先级和支出限制
-   - **Payment Client** (`payment/client.py`) - Calls Guardian for payments (no longer holds private keys)
-   - **PaidToolWrapper** (`payment/wrapper.py`) - 包装所有工具调用：策略检查 → 支付 → 执行
-   - **Omni-Agent** (`agents/omni_agent.py`) - LangChain/LangGraph 驱动的主协调器
-
-3. **服务提供商层** (`providers/`)
-   - `imagegen/` - 图像生成服务 (1.0 MNEE/调用)
-   - `price_oracle/` - 价格数据查询 (0.05 MNEE/查询)
-   - `batch_compute/` - 批量计算任务 (3.0 MNEE/任务)
-   - `log_archive/` - 日志存储服务 (0.01 MNEE/日志)
-   - 每个提供商是独立的 FastAPI 服务，验证链上支付事件
-
-4. **前端层** (`frontend/`)
-   - Next.js + React + TailwindCSS
-   - 实时聊天界面、资金池仪表板、交易流和策略日志
-
-## 常用开发命令
-
-### 快速启动（推荐）
-
-```bash
-# 验证配置
-python scripts/validate_config.py
-
-# 启动所有服务（Hardhat + 合约 + 提供商 + 后端）
-./start_all.sh
-
-# 检查状态
-./start_all.sh status
-
-# 查看日志
-./start_all.sh logs backend
-./start_all.sh logs imagegen
-
-# 停止所有服务
-./start_all.sh stop
+```
+User Request → Planner → Guardian (risk check) → EscrowLock → Executor → Verifier → EscrowRelease → Summarizer
 ```
 
-### 分步启动
+The complete flow is defined in `backend/agents/graph.py` using LangGraph's StateGraph. All state flows through `GraphState` (`backend/agents/state.py`).
+
+### Four-Layer Architecture
+
+1. **Smart Contracts** (`contracts/`)
+   - `MNEEPaymentRouter.sol` - Handles MNEE payments, emits `PaymentExecuted` events
+   - `MNEEServiceRegistry.sol` - Service provider registration and pricing
+   - `MNEEAgentWallet.sol` - Agent wallet management for A2A payments
+   - Uses Hardhat mainnet fork of real MNEE contract (`0x8ccedbAe4916b79da7F3F612EfB2EB93A2bFD6cF`)
+
+2. **Backend Orchestration** (`backend/`)
+   - **Guardian Service** (`guardian/service.py`) - ONLY service holding `TREASURY_PRIVATE_KEY`, port 8100
+   - **Policy Engine** (`policy/engine.py`) - Budget/priority enforcement, `check_policy()` returns ALLOW/DENY/DOWNGRADE
+   - **Payment Client** (`payment/client.py`) - Calls Guardian for payments, never holds private keys
+   - **A2A Client** (`payment/a2a_client.py`) - Agent-to-Agent payment execution
+   - **LangGraph Nodes** (`agents/nodes/`) - planner, guardian, executor, verifier, escrow_lock, escrow_release, feedback, summarizer
+   - **Swarm Architecture** (`agents/swarm/`) - Multi-agent coordination: Manager → Customer → Merchant → Treasurer
+
+3. **Service Providers** (`providers/`) - Independent FastAPI services
+   - `imagegen/` (port 8001) - 1.0 MNEE/call
+   - `price_oracle/` (port 8002) - 0.05 MNEE/query
+   - `batch_compute/` (port 8003) - 3.0 MNEE/task
+   - `log_archive/` (port 8004) - 0.01 MNEE/log
+
+4. **Frontend** (`frontend/`) - Next.js 14 + React 18 + TailwindCSS
+
+## Development Commands
+
+### Quick Start
 
 ```bash
-# 1. 启动 Hardhat fork (Terminal 1)
-cd contracts
-npx hardhat node
-
-# 2. 部署合约 (Terminal 2)
-cd contracts
-npx hardhat run scripts/deploy.js --network localhost
-
-# 3. 启动后端 (Terminal 3)
-cd backend
-uvicorn app.main:app --reload --port 8000
-
-# 4. 启动服务提供商 (Terminal 4-7)
-cd providers/imagegen && python main.py
-cd providers/price_oracle && python main.py
-cd providers/batch_compute && python main.py
-cd providers/log_archive && python main.py
-
-# 5. 启动前端 (Terminal 8)
-cd frontend
-npm run dev
+./start_all.sh              # Start all services (Hardhat + contracts + providers + backend)
+./start_all.sh status       # Check status
+./start_all.sh logs backend # View specific logs
+./start_all.sh stop         # Stop all services
 ```
 
-### 智能合约开发
-
-```bash
-cd contracts
-
-# 编译合约
-npx hardhat compile
-
-# 运行测试
-npx hardhat test
-
-# 部署到本地 fork
-npx hardhat run scripts/deploy.js --network localhost
-
-# Hardhat console 交互
-npx hardhat console --network localhost
-```
-
-### Guardian Service Development
+### Backend
 
 ```bash
 cd backend
-
-# Start Guardian standalone
-python -m guardian.service
-
-# Or use startup script
-cd guardian
-./start_guardian.sh
-
-# Test Guardian endpoints
-curl http://localhost:8100/
-curl http://localhost:8100/guardian/balance
-
-# Check Guardian logs
-tail -f ../logs/guardian.log
-```
-
-**Important:** Guardian Service is the ONLY service that holds `TREASURY_PRIVATE_KEY`. Never access private keys directly in Payment Client or other services.
-
-### 后端开发
-
-```bash
-cd backend
-
-# 安装依赖
 pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000   # Dev server
 
-# 运行后端（开发模式）
-uvicorn app.main:app --reload --port 8000
-
-# 运行 API 测试
-python test_api.py
-
-# 健康检查
-./health_check.sh
+# Tests
+python test_api.py          # API integration test
+python test_graph.py        # LangGraph workflow test
+python test_swarm.py        # Swarm architecture test
+python verify_langchain_v1.py  # LangChain 1.0 compatibility check
 ```
 
-### 前端开发
+### Smart Contracts
+
+```bash
+cd contracts
+npm ci
+npx hardhat compile                              # Compile
+npx hardhat test                                 # Run tests
+npx hardhat coverage                             # Coverage report
+npx hardhat run scripts/deploy.js --network localhost  # Deploy
+npx hardhat console --network localhost          # Interactive console
+```
+
+### Frontend
 
 ```bash
 cd frontend
-
-# 安装依赖
 npm install
-
-# 开发服务器
-npm run dev
-
-# 构建生产版本
-npm run build
-
-# 启动生产服务器
-npm start
+npm run dev     # Dev server on port 3000
+npm run build   # Production build
+npm run lint    # ESLint
 ```
 
-### 测试命令
+### Guardian Service (Isolated Key Management)
 
 ```bash
-# 后端 API 测试
-curl http://localhost:8000/
-curl http://localhost:8000/treasury
-curl http://localhost:8000/agents
-
-# 测试聊天接口
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id":"user-agent","message":"Generate a cyberpunk avatar"}'
-
-# 验证所有服务健康
-curl http://localhost:8000/ && \
-curl http://localhost:8001/docs && \
-curl http://localhost:8002/docs && \
-curl http://localhost:8003/docs && \
-curl http://localhost:8004/docs && \
-echo "✅ All services healthy"
+cd backend
+python -m guardian.service  # Start on port 8100
+# Test: curl http://localhost:8100/guardian/balance
 ```
 
-## 关键配置文件
+**Security:** Guardian is the ONLY service holding `TREASURY_PRIVATE_KEY`. Payment Client calls Guardian's HTTP API for all signing operations.
 
-### Agent 配置 (`config/agents.yaml`)
+## Configuration
 
-定义 Agent 的预算、优先级和每次调用限制：
+### Agent Budgets (`config/agents.yaml`)
 
 ```yaml
 agents:
   - id: "user-agent"
-    priority: "HIGH"        # 最高优先级
-    dailyBudget: 100.0      # 每日预算
-    maxPerCall: 10.0        # 单次调用最大金额
-
-  - id: "batch-agent"
-    priority: "LOW"         # 低优先级
-    dailyBudget: 50.0
-    maxPerCall: 20.0
-
-  - id: "ops-agent"
-    priority: "MEDIUM"
-    dailyBudget: 30.0
-    maxPerCall: 5.0
+    priority: "HIGH"      # HIGH/MEDIUM/LOW
+    dailyBudget: 100.0    # MNEE per day
+    maxPerCall: 10.0      # Max single transaction
 ```
 
-### 服务配置 (`config/services.yaml`)
-
-定义服务提供商的定价和地址：
+### Services (`config/services.yaml`)
 
 ```yaml
 services:
   - id: "IMAGE_GEN_PREMIUM"
-    unitPrice: 1.0          # 1.0 MNEE/调用
-    providerAddress: "0x..."
-    active: true
-
-  - id: "PRICE_ORACLE"
-    unitPrice: 0.05
+    unitPrice: 1.0
     providerAddress: "0x..."
     active: true
 ```
 
-### 环境变量 (`backend/.env`)
+### Environment (`backend/.env`)
 
-```bash
-# Ethereum 配置
-ETH_RPC_URL=http://127.0.0.1:8545
-MNEE_TOKEN_ADDRESS=0x8ccedbAe4916b79da7F3F612EfB2EB93A2bFD6cF
+Required variables:
+- `ETH_RPC_URL` - Hardhat node (default: `http://127.0.0.1:8545`)
+- `MNEE_TOKEN_ADDRESS` - Real MNEE contract address
+- `PAYMENT_ROUTER_ADDRESS`, `SERVICE_REGISTRY_ADDRESS` - From deployment output
+- `TREASURY_PRIVATE_KEY` - Hardhat test account (used only by Guardian)
+- LLM keys: `OPENAI_API_KEY` or `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`
 
-# 智能合约地址（从部署输出复制）
-PAYMENT_ROUTER_ADDRESS=0x...
-SERVICE_REGISTRY_ADDRESS=0x...
+## Key Workflows
 
-# 资金池配置（Hardhat Account #1）
-TREASURY_PRIVATE_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+### Adding a New Service Provider
 
-# 配置文件路径
-POLICY_CONFIG_PATH=../config/agents.yaml
-SERVICE_CONFIG_PATH=../config/services.yaml
+1. Register in `MNEEServiceRegistry` contract
+2. Add to `config/services.yaml`
+3. Create FastAPI service in `providers/`
+4. Define tool in `backend/agents/tools/definitions.py`
+5. Register in `backend/agents/omni_agent.py`
 
-# LLM API Keys (至少需要一个)
-OPENAI_API_KEY=sk-...
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
+### Payment Flow (Escrow-Verify-Release Protocol)
+
+```
+1. Policy Check      -> PolicyEngine.check_policy() returns ALLOW/DENY/DOWNGRADE
+2. Escrow Lock       -> Funds locked via EscrowManager
+3. Guardian Pay      -> Guardian signs and executes on-chain payment
+4. Service Execution -> Call provider HTTP API
+5. Verification      -> Verifier validates output
+6. Escrow Release    -> Funds released to merchant or refunded
 ```
 
-## 核心工作流
+### Policy Engine (`backend/policy/engine.py`)
 
-### 添加新服务提供商
+- `check_policy()` validates daily budget and per-call limits
+- Priority levels: HIGH/MEDIUM/LOW
+- Automatic service downgrade when budget is insufficient
 
-1. **合约注册**：在 `ServiceRegistry` 合约中注册新服务
-2. **配置**：在 `config/services.yaml` 中添加服务定义
-3. **实现提供商**：在 `providers/` 中创建新的 HTTP 服务
-4. **定义工具**：在 `backend/agents/tools/definitions.py` 中创建工具函数
-5. **注册工具**：在 `backend/agents/omni_agent.py` 的 `create_agent()` 中注册
+**Important:** Complex policy logic stays off-chain. Smart contracts only handle basic payment routing.
 
-### 修改策略逻辑
+## Technical Details
 
-所有策略逻辑集中在 `backend/policy/engine.py`：
+### Hardhat Fork
 
-- **预算检查**：`check_policy()` 方法验证每日预算和单次调用限制
-- **优先级管理**：基于 Agent 优先级（HIGH/MEDIUM/LOW）做决策
-- **降级逻辑**：当预算不足时自动降级服务（例如：全量日志 → 摘要日志）
+- Forks real MNEE contract `0x8ccedbAe4916b79da7F3F612EfB2EB93A2bFD6cF` from Ethereum mainnet
+- Uses `impersonateAccount` to acquire MNEE tokens (zero-cost testing)
+- Config: `contracts/hardhat.config.ts` `forking` section
 
-**重要**：不要在智能合约中实现复杂策略逻辑。合约应保持简单，只处理基本支付路由。
+### LangGraph Integration
 
-### 支付流程
+- Main workflow: `backend/agents/graph.py` - builds `StateGraph` with all nodes
+- State definition: `backend/agents/state.py` - `GraphState`, `StepRecord`, `EscrowRecord`
+- Tool wrapper: `backend/payment/wrapper.py` - enforces payment on every tool call
+- Supports OpenAI and AWS Bedrock LLMs
 
-Every tool call goes through the Payment Client's secure flow:
+### A2A (Agent-to-Agent) Commerce
 
-1. **Policy Check** - Policy Engine decides ALLOW/DENY/DOWNGRADE
-2. **Guardian Quote** - Pre-check with Guardian Service (fast, no blockchain)
-3. **Guardian Pay** - Guardian signs and executes on-chain payment
-4. **Service Execution** - Call service provider's HTTP API
-5. **Record Usage** - Log transaction and policy decisions
+- `backend/payment/a2a_client.py` - handles inter-agent payments
+- `backend/agents/registry.py` - agent discovery with capabilities and reputation
+- `backend/agents/nodes/escrow.py` - trustless transactions via escrow
+- `backend/agents/nodes/verifier.py` - output verification before fund release
 
-**Security Note:** Payment Client NEVER holds private keys. All signing happens in isolated Guardian Service (port 8100).
+## Service Ports
 
-## 技术细节
-
-### Hardhat Fork 架构
-
-- 使用真实 MNEE 合约 `0x8ccedbAe4916b79da7F3F612EfB2EB93A2bFD6cF`
-- Fork 自 Ethereum 主网区块 #21000000
-- 通过 `impersonateAccount` 获取 MNEE 代币（无需真实资金）
-- 所有 ERC-20 交互与主网完全一致
-- 配置：`contracts/hardhat.config.ts` 中的 `forking` 部分
-
-### LangChain Agent 集成
-
-- 主协调器：`backend/agents/omni_agent.py`
-- 使用 LangGraph 的 `create_react_agent()`
-- 所有工具通过 `PaidToolWrapper` 自动强制执行支付
-- 支持 OpenAI 和 AWS Bedrock LLM
-
-### Web3 交互
-
-- 库：`web3.py`
-- 主客户端：`backend/payment/client.py`
-- 监听 `PaymentExecuted` 事件以进行审计
-- 自动处理 gas 估算和交易重试
-
-## 服务端口
-
-| 服务 | 端口 | 用途 |
-|------|------|------|
+| Service | Port | Purpose |
+|---------|------|---------|
 | Hardhat Node | 8545 | Ethereum RPC |
-| Backend API | 8000 | 主 API 和 Swagger 文档 |
-| **Guardian Service** | **8100** | **Secure key management** |
-| ImageGen | 8001 | 图像生成服务 |
-| PriceOracle | 8002 | 价格数据服务 |
-| BatchCompute | 8003 | 批量计算服务 |
-| LogArchive | 8004 | 日志存储服务 |
-| Frontend | 3000 | Next.js 开发服务器 |
+| Backend API | 8000 | Main API (Swagger at /docs) |
+| Guardian | 8100 | Isolated key management |
+| ImageGen | 8001 | Image generation |
+| PriceOracle | 8002 | Price data |
+| BatchCompute | 8003 | Batch computation |
+| LogArchive | 8004 | Log storage |
+| Frontend | 3000 | Next.js UI |
 
-## 故障排查
-
-### 服务无法启动
+## API Endpoints
 
 ```bash
-# 检查状态
-./start_all.sh status
+# Health & Status
+GET  /                    # Service info
+GET  /treasury            # Budget status across all agents
+GET  /agents              # List all agents
+GET  /services            # List all services
 
-# 查看特定服务日志
-./start_all.sh logs <service_name>
+# Chat (main agent interaction)
+POST /chat                # {"agent_id": "user-agent", "message": "..."}
 
-# 检查端口占用
-lsof -i :8000
+# A2A Payments
+POST /a2a/pay             # Execute agent-to-agent payment
+GET  /a2a/transfers       # Recent A2A transfers
+GET  /a2a/balances        # All agent wallet balances
+
+# Agent Registry (Labor Market)
+GET  /registry/agents     # All registered agents
+GET  /registry/find?capability=image_gen  # Find by capability
+GET  /registry/select?capability=...      # Select best agent
+
+# Escrow
+GET  /escrow/list         # All escrow transactions
+POST /escrow/{id}/dispute # Raise dispute
+
+# Policy & Logs
+GET  /policy/logs         # Recent policy decisions
+POST /reset               # Reset daily budgets
 ```
 
-### 合约交互失败
+## Troubleshooting
 
-- 确认 Hardhat node 正在运行
-- 验证 `backend/.env` 中的合约地址正确
-- 检查 Treasury 有足够的 MNEE 余额（通过 Hardhat console）
+- **Services won't start**: `./start_all.sh status`, check `logs/` directory
+- **Contract errors**: Verify Hardhat node running, check `.env` addresses
+- **Policy denials**: Check `config/agents.yaml`, view `/policy/logs`, use `/reset`
+- **Port conflicts**: `lsof -i :PORT`
 
-### 策略拒绝
+## Testing
 
-- 检查 `config/agents.yaml` 中的预算配置
-- 查看策略日志：`curl http://localhost:8000/policy/logs`
-- 重置每日支出：`curl -X POST http://localhost:8000/reset`
+### Smart Contract Tests
 
-## 开发最佳实践
+```bash
+cd contracts
+npx hardhat test                    # Run all tests
+npx hardhat test test/MNEEEscrow.test.ts  # Run specific test
+npx hardhat coverage               # Generate coverage report
+```
 
-1. **修改配置后**：重启后端服务以加载新配置
-2. **修改合约后**：需要重新部署并更新后端 `.env` 文件
-3. **本地测试**：使用 Hardhat fork 而不是真实网络
-4. **日志查看**：所有日志保存在 `logs/` 目录
-5. **策略优先**：先在链下实现和测试策略，而不是在合约中
+Test files:
+- `test/MNEEServiceRegistry.test.ts` - Service registration, updates, access control
+- `test/MNEEPaymentRouter.test.ts` - Payment execution, events, edge cases
+- `test/MNEEAgentWallet.test.ts` - A2A payments, agent management, withdrawals
+- `test/MNEEEscrow.test.ts` - Escrow-Verify-Release protocol, disputes
 
-## 相关文档
+### Demo Script
 
-- **完整说明**：`FINAL_PROJECT_OVERVIEW.md` - 项目的"为什么"和架构
-- **快速参考**：`QUICK_REFERENCE.md` - 命令和端点速查表
-- **后端文档**：`backend/README.md` - API 端点详细说明
-- **Fork 指南**：`HARDHAT_FORK_GUIDE.md` - Hardhat fork 设置步骤
-- **项目规范**：`project_spec.md` - 完整的中文技术规范
+```bash
+./scripts/demo.sh              # Full interactive demo
+./scripts/demo.sh treasury     # Just treasury demo
+./scripts/demo.sh a2a          # Just A2A payment demo
+./scripts/demo.sh failure      # Budget exhaustion scenario
+```
 
-## 项目目标
+## Code Conventions
 
-这是一个 Hackathon MVP，展示：
-- ✅ 多 Agent 共享预算协调
-- ✅ 基于 MNEE 的链上支付
-- ✅ 链下策略强制执行（预算、优先级）
-- ✅ 服务提供商经济模型
-- ✅ 透明的交易和策略审计
-
-重点是展示**架构和工作流**，而不是生产级别的完善。
+- All code and comments must be in English (no Chinese characters or emojis in code)
+- After modifying contracts, redeploy and update `backend/.env`
+- All logs saved to `logs/` directory
+- Architecture diagram: `docs/ARCHITECTURE.md`

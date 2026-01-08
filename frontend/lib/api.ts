@@ -148,3 +148,44 @@ export const checkHealth = async (): Promise<boolean> => {
     return false;
   }
 };
+
+// Workflow API functions
+export const fetchWorkflowTemplates = () =>
+  withRetry(async () => (await api.get('/workflows/templates')).data);
+
+export const fetchWorkflowTemplate = (workflowId: string) =>
+  withRetry(async () => (await api.get(`/workflows/templates/${encodeURIComponent(workflowId)}`)).data);
+
+export const startWorkflow = async (
+  workflowId: string,
+  customerAgent: string,
+  initialInput: Record<string, unknown> = {}
+): Promise<{ instance: import('./types').WorkflowInstance }> => {
+  return (await api.post('/workflows/start', {
+    workflow_id: workflowId,
+    customer_agent: customerAgent,
+    initial_input: initialInput,
+  })).data;
+};
+
+export const fetchWorkflowInstances = (status?: string) => {
+  const params = status ? `?status=${encodeURIComponent(status)}` : '';
+  return withRetry(async () => (await api.get(`/workflows/instances${params}`)).data);
+};
+
+export const fetchWorkflowInstance = (instanceId: string) =>
+  withRetry(async () => (await api.get(`/workflows/instances/${encodeURIComponent(instanceId)}`)).data);
+
+// Agent bidding/coordination
+export const fetchAgentBids = async (
+  capability: string,
+  priceWeight: number = 0.4,
+  reputationWeight: number = 0.4
+): Promise<import('./types').BidInfo> => {
+  const params = new URLSearchParams({
+    capability,
+    price_weight: priceWeight.toString(),
+    reputation_weight: reputationWeight.toString(),
+  });
+  return (await api.get(`/registry/bids?${params}`)).data;
+};

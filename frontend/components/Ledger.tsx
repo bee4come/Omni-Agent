@@ -1,7 +1,21 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 import { ExternalLink } from 'lucide-react';
 import { Transaction } from '../lib/types';
 import clsx from 'clsx';
+
+const rowVariants = {
+  hidden: { opacity: 0, x: -20 },
+  visible: (i: number) => ({
+    opacity: 1,
+    x: 0,
+    transition: {
+      delay: i * 0.05,
+      duration: 0.3,
+      ease: 'easeOut' as const,
+    },
+  }),
+};
 
 export const Ledger = ({ transactions }: { transactions: Transaction[] }) => {
   const getExplorerUrl = (txHash: string) => {
@@ -10,7 +24,12 @@ export const Ledger = ({ transactions }: { transactions: Transaction[] }) => {
   };
 
   return (
-    <div className="border border-slate-800 rounded overflow-hidden bg-slate-900/50">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.3 }}
+      className="border border-slate-800 rounded overflow-hidden bg-slate-900/50"
+    >
       <table className="w-full text-sm text-left data-table">
         <thead className="bg-slate-900 text-slate-500 font-medium border-b border-slate-800">
           <tr>
@@ -24,7 +43,14 @@ export const Ledger = ({ transactions }: { transactions: Transaction[] }) => {
         </thead>
         <tbody className="divide-y divide-slate-800 text-slate-300">
           {transactions.map((tx, i) => (
-            <tr key={i} className="hover:bg-slate-800/50 transition-colors">
+            <motion.tr
+              key={i}
+              custom={i}
+              initial="hidden"
+              animate="visible"
+              variants={rowVariants}
+              className="hover:bg-slate-800/50 transition-colors"
+            >
               <td className="px-4 py-3 font-mono text-xs text-slate-500">
                 {new Date(tx.timestamp).toLocaleTimeString()}
               </td>
@@ -60,16 +86,20 @@ export const Ledger = ({ transactions }: { transactions: Transaction[] }) => {
                   <span className="font-mono text-xs text-slate-600">-</span>
                 )}
               </td>
-            </tr>
+            </motion.tr>
           ))}
         </tbody>
       </table>
-      
+
       {transactions.length === 0 && (
-        <div className="py-12 text-center text-slate-500">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="py-12 text-center text-slate-500"
+        >
           No transactions yet
-        </div>
+        </motion.div>
       )}
-    </div>
+    </motion.div>
   );
 };

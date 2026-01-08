@@ -1,12 +1,49 @@
 import type { AppProps } from 'next/app';
+import { useRouter } from 'next/router';
 import { Toaster } from 'react-hot-toast';
+import { AnimatePresence, motion } from 'framer-motion';
+import ErrorBoundary from '../components/ErrorBoundary';
 import '../styles/globals.css';
 
+const pageVariants = {
+  initial: {
+    opacity: 0,
+    y: 10,
+  },
+  in: {
+    opacity: 1,
+    y: 0,
+  },
+  out: {
+    opacity: 0,
+    y: -10,
+  },
+};
+
+const pageTransition = {
+  type: 'tween' as const,
+  ease: 'easeInOut' as const,
+  duration: 0.2,
+};
+
 export default function App({ Component, pageProps }: AppProps) {
+  const router = useRouter();
+
   return (
-    <>
-      <Component {...pageProps} />
-      <Toaster 
+    <ErrorBoundary>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={router.asPath}
+          initial="initial"
+          animate="in"
+          exit="out"
+          variants={pageVariants}
+          transition={pageTransition}
+        >
+          <Component {...pageProps} />
+        </motion.div>
+      </AnimatePresence>
+      <Toaster
         position="top-right"
         toastOptions={{
           duration: 4000,
@@ -31,6 +68,6 @@ export default function App({ Component, pageProps }: AppProps) {
           },
         }}
       />
-    </>
+    </ErrorBoundary>
   );
 }

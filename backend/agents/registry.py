@@ -260,7 +260,119 @@ class AgentRegistry:
         # Sort by score descending
         scored.sort(key=lambda x: x[0], reverse=True)
         return scored[0][1] if scored else None
-    
+
+    def get_agent_bids(
+        self,
+        capability: str,
+        price_weight: float = 0.4,
+        reputation_weight: float = 0.4,
+        success_weight: float = 0.2
+    ) -> Dict[str, Any]:
+        """
+        Get all agent bids for a capability with selection reasoning.
+
+        Returns bid details for all matching agents, plus the winning agent
+        with explanation for why it was selected.
+
+        Used for coordination visualization in the UI.
+        """
+        candidates = self.find_by_capability(capability)
+        if not candidates:
+            return {
+                "capability": capability,
+                "bids": [],
+                "selected_agent": None,
+                "selection_reason": "No agents available for this capability"
+            }
+
+        # Calculate scores for all candidates
+        max_price = max(c.get_price(capability) for c in candidates) or 1
+
+        bids = []
+        scored = []
+        for agent in candidates:
+            price = agent.get_price(capability)
+            price_score = 1 - (price / max_price) if max_price > 0 else 1
+            reputation_score = agent.reputation_score / 5.0
+            success_score = agent.success_rate
+
+            total_score = (
+                price_score * price_weight +
+                reputation_score * reputation_weight +
+                success_score * success_weight
+            )
+
+            # Estimate time based on current load
+            base_time = 5  # Base seconds
+            load_factor = 1 + (agent.current_load * 0.5)
+            estimated_time = int(base_time * load_factor)
+
+            bid = {
+                "agent_id": agent.agent_id,
+                "agent_name": agent.name,
+                "price": price,
+                "estimated_time": estimated_time,
+                "reputation_score": agent.reputation_score,
+                "success_rate": agent.success_rate,
+                "total_tasks": agent.total_tasks_completed,
+                "current_load": agent.current_load,
+                "capability_match": True,
+                "score": round(total_score, 3),
+                "score_breakdown": {
+                    "price_score": round(price_score, 3),
+                    "reputation_score": round(reputation_score, 3),
+                    "success_score": round(success_score, 3)
+                }
+            }
+            bids.append(bid)
+            scored.append((total_score, bid, agent))
+
+        # Sort by score descending
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        # Determine selection reason
+        winner = scored[0] if scored else None
+        selection_reason = ""
+
+        if winner:
+            agent = winner[2]
+            reasons = []
+
+            # Check what made this agent win
+            if len(scored) > 1:
+                runner_up = scored[1]
+
+                # Price advantage
+                if winner[1]["price"] < runner_up[1]["price"]:
+                    reasons.append(f"lower price ({winner[1]['price']} vs {runner_up[1]['price']} MNEE)")
+
+                # Reputation advantage
+                if agent.reputation_score > runner_up[2].reputation_score:
+                    reasons.append(f"higher reputation ({agent.reputation_score:.1f} vs {runner_up[2].reputation_score:.1f})")
+
+                # Success rate advantage
+                if agent.success_rate > runner_up[2].success_rate:
+                    reasons.append(f"better success rate ({agent.success_rate:.0%} vs {runner_up[2].success_rate:.0%})")
+
+                if reasons:
+                    selection_reason = f"Selected due to {', '.join(reasons)}"
+                else:
+                    selection_reason = "Best overall weighted score across price, reputation, and reliability"
+            else:
+                selection_reason = "Only available agent for this capability"
+
+        return {
+            "capability": capability,
+            "bids": bids,
+            "selected_agent": winner[1]["agent_id"] if winner else None,
+            "selection_reason": selection_reason,
+            "weights": {
+                "price": price_weight,
+                "reputation": reputation_weight,
+                "success": success_weight
+            }
+        }
+
     def submit_quote(self, quote: Quote):
         """Submit a quote for a task (RFQ market)."""
         if quote.task_id not in self.quotes:

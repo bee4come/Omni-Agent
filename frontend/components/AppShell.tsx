@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   LayoutDashboard, Users, TerminalSquare, FileJson, Wallet, Activity,
-  Package, Shield, Settings, BarChart3, RefreshCw, Lock, Menu, X, Wifi, WifiOff
+  Package, Shield, Settings, BarChart3, RefreshCw, Lock, Menu, X, Wifi, WifiOff,
+  GitBranch
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -26,6 +27,7 @@ export const AppShell = ({ children, activeTab, setActiveTab, treasuryBalance, o
     { id: 'fleet', icon: Users, label: 'Agent Fleet' },
     { id: 'a2a', icon: Activity, label: 'A2A Network' },
     { id: 'escrow', icon: Lock, label: 'Escrow Manager' },
+    { id: 'workflow', icon: GitBranch, label: 'Workflows' },
     { id: 'ops', icon: TerminalSquare, label: 'Live Ops' },
     { id: 'ledger', icon: FileJson, label: 'Ledger' },
     { id: 'policy', icon: Shield, label: 'Policy Logs' },

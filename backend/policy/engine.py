@@ -207,8 +207,94 @@ class PolicyEngine:
     def record_call_result(self, agent_id: str, service_id: str, cost: float, success: bool):
         """Update usage stats"""
         self.risk_engine.record_call(agent_id, service_id, cost, success)
-        
+
         if success and agent_id in self.usage:
             self.usage[agent_id].spent_today_mnee += cost
             self.usage[agent_id].spent_total_mnee += cost
             print(f"[POLICY] {agent_id} spent {cost} MNEE. Total today: {self.usage[agent_id].spent_today_mnee}")
+
+    def validate_workflow_budget(
+        self,
+        customer_agent_id: str,
+        total_cost: float,
+        step_costs: list[tuple[str, float]] = None
+    ) -> Dict[str, Any]:
+        """
+        Validate if customer agent has sufficient budget for entire workflow.
+
+        Args:
+            customer_agent_id: The agent paying for the workflow
+            total_cost: Total cost of all workflow steps
+            step_costs: Optional list of (step_id, cost) for detailed error messages
+
+        Returns:
+            Dict with 'approved', 'reason', and 'details'
+        """
+        agent = self.agents.get(customer_agent_id)
+        if not agent:
+            return {
+                "approved": False,
+                "reason": f"Agent {customer_agent_id} not found",
+                "details": {}
+            }
+
+        if agent.paused:
+            return {
+                "approved": False,
+                "reason": f"Agent {customer_agent_id} is paused",
+                "details": {}
+            }
+
+        usage = self.usage.get(customer_agent_id)
+        if not usage:
+            return {
+                "approved": False,
+                "reason": f"No usage record for {customer_agent_id}",
+                "details": {}
+            }
+
+        remaining_budget = agent.daily_budget_mnee - usage.spent_today_mnee
+
+        if total_cost > remaining_budget:
+            return {
+                "approved": False,
+                "reason": f"Insufficient budget: need {total_cost:.2f} MNEE, have {remaining_budget:.2f} MNEE",
+                "details": {
+                    "required": total_cost,
+                    "available": remaining_budget,
+                    "daily_budget": agent.daily_budget_mnee,
+                    "spent_today": usage.spent_today_mnee
+                }
+            }
+
+        # Check if any single step exceeds max per-call limit
+        if step_costs:
+            for step_id, cost in step_costs:
+                if cost > agent.max_single_call_mnee:
+                    return {
+                        "approved": False,
+                        "reason": f"Step '{step_id}' cost {cost:.2f} exceeds max per-call limit {agent.max_single_call_mnee:.2f}",
+                        "details": {
+                            "step_id": step_id,
+                            "step_cost": cost,
+                            "max_per_call": agent.max_single_call_mnee
+                        }
+                    }
+
+        return {
+            "approved": True,
+            "reason": "Workflow budget approved",
+            "details": {
+                "total_cost": total_cost,
+                "remaining_after": remaining_budget - total_cost,
+                "daily_budget": agent.daily_budget_mnee
+            }
+        }
+
+    def get_agent_remaining_budget(self, agent_id: str) -> float:
+        """Get remaining daily budget for an agent."""
+        agent = self.agents.get(agent_id)
+        usage = self.usage.get(agent_id)
+        if not agent or not usage:
+            return 0.0
+        return agent.daily_budget_mnee - usage.spent_today_mnee

@@ -124,3 +124,88 @@ export interface EscrowSimple {
   task_description: string;
   created_at?: string;
 }
+
+// Workflow types for multi-agent collaboration
+export type WorkflowStepStatusType = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface WorkflowStepDef {
+  step_id: string;
+  role: string;
+  agent_id: string;
+  capability: string;
+  estimated_cost: number;
+  depends_on: string[];
+}
+
+export interface WorkflowTemplate {
+  workflow_id: string;
+  name: string;
+  description: string;
+  total_cost: number;
+  step_count: number;
+  steps: WorkflowStepDef[];
+}
+
+// Agent bid information for coordination visualization
+export interface AgentBid {
+  agent_id: string;
+  agent_name: string;
+  price: number;
+  estimated_time: number;
+  reputation_score: number;
+  success_rate: number;
+  total_tasks: number;
+  current_load: number;
+  capability_match: boolean;
+  score: number;
+  score_breakdown: {
+    price_score: number;
+    reputation_score: number;
+    success_score: number;
+  };
+}
+
+export interface BidInfo {
+  capability: string;
+  bids: AgentBid[];
+  selected_agent: string | null;
+  selection_reason: string;
+  weights?: {
+    price: number;
+    reputation: number;
+    success: number;
+  };
+}
+
+export interface WorkflowStepStatus {
+  step_id: string;
+  role: string;
+  agent_id: string;
+  status: WorkflowStepStatusType;
+  cost: number;
+  escrow_id?: string;
+  escrow_status?: string;
+  tx_hash?: string;
+  selection_reason?: string;
+  bid_info?: BidInfo;
+  output_data?: Record<string, unknown>;
+  started_at?: string;
+  completed_at?: string;
+}
+
+export interface WorkflowInstance {
+  instance_id: string;
+  workflow_id: string;
+  name: string;
+  customer_agent: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  current_step_index: number;
+  total_steps: number;
+  progress_percent: number;
+  total_cost: number;
+  spent_so_far: number;
+  created_at: string;
+  completed_at?: string;
+  steps: WorkflowStepStatus[];
+  escrow_ids: string[];
+}
